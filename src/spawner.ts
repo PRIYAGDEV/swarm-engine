@@ -86,12 +86,18 @@ async function copyProjectFiles(sourceDir: string, destDir: string): Promise<voi
     return;
   }
   for (const entry of entries) {
+    const lowerName = entry.name.toLowerCase();
     if (
-      entry.name === ".git" ||
-      entry.name === ".swarm" ||
-      entry.name === "node_modules" ||
-      entry.name === "AppData" ||
-      entry.name.startsWith(".")
+      entry.name.startsWith(".") ||
+      entry.isSymbolicLink() ||
+      lowerName === "node_modules" ||
+      lowerName === "appdata" ||
+      lowerName === "application data" ||
+      lowerName === "local settings" ||
+      lowerName === "cookies" ||
+      lowerName === "recent" ||
+      lowerName === "temp" ||
+      lowerName.startsWith("ntuser")
     ) {
       continue;
     }
@@ -107,7 +113,7 @@ async function copyProjectFiles(sourceDir: string, destDir: string): Promise<voi
         await fs.copyFile(srcPath, destPath);
       }
     } catch {
-      // Ignore read/permission errors on system files
+      // Ignore read/permission/busy errors on system or locked files
     }
   }
 }
@@ -118,25 +124,36 @@ async function copyProjectFiles(sourceDir: string, destDir: string): Promise<voi
  */
 async function copyWorktreeBack(worktreeDir: string, rootDir: string): Promise<void> {
   async function copyDir(currentSrc: string, currentDest: string) {
-    const entries = await fs.readdir(currentSrc, { withFileTypes: true });
+    let entries;
+    try {
+      entries = await fs.readdir(currentSrc, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const entry of entries) {
+      const lowerName = entry.name.toLowerCase();
       if (
         entry.name === "AGENT_TASK.md" ||
-        entry.name === ".git" ||
-        entry.name === ".swarm" ||
-        entry.name === "node_modules"
+        entry.name.startsWith(".") ||
+        entry.isSymbolicLink() ||
+        lowerName === "node_modules" ||
+        lowerName === "appdata"
       ) {
         continue;
       }
       const srcItem = path.join(currentSrc, entry.name);
       const destItem = path.join(currentDest, entry.name);
 
-      if (entry.isDirectory()) {
-        await fs.mkdir(destItem, { recursive: true });
-        await copyDir(srcItem, destItem);
-      } else if (entry.isFile()) {
-        await fs.mkdir(path.dirname(destItem), { recursive: true });
-        await fs.copyFile(srcItem, destItem);
+      try {
+        if (entry.isDirectory()) {
+          await fs.mkdir(destItem, { recursive: true });
+          await copyDir(srcItem, destItem);
+        } else if (entry.isFile()) {
+          await fs.mkdir(path.dirname(destItem), { recursive: true });
+          await fs.copyFile(srcItem, destItem);
+        }
+      } catch {
+        // Ignore locked or in-use files
       }
     }
   }
