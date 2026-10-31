@@ -79,24 +79,35 @@ async function rmWithRetry(targetPath: string, maxAttempts = 6): Promise<void> {
  * excluding .git, .swarm, and node_modules directories.
  */
 async function copyProjectFiles(sourceDir: string, destDir: string): Promise<void> {
-  const entries = await fs.readdir(sourceDir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await fs.readdir(sourceDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
   for (const entry of entries) {
     if (
       entry.name === ".git" ||
       entry.name === ".swarm" ||
-      entry.name === "node_modules"
+      entry.name === "node_modules" ||
+      entry.name === "AppData" ||
+      entry.name.startsWith(".")
     ) {
       continue;
     }
     const srcPath = path.join(sourceDir, entry.name);
     const destPath = path.join(destDir, entry.name);
 
-    if (entry.isDirectory()) {
-      await fs.mkdir(destPath, { recursive: true });
-      await copyProjectFiles(srcPath, destPath);
-    } else if (entry.isFile()) {
-      await fs.mkdir(path.dirname(destPath), { recursive: true });
-      await fs.copyFile(srcPath, destPath);
+    try {
+      if (entry.isDirectory()) {
+        await fs.mkdir(destPath, { recursive: true });
+        await copyProjectFiles(srcPath, destPath);
+      } else if (entry.isFile()) {
+        await fs.mkdir(path.dirname(destPath), { recursive: true });
+        await fs.copyFile(srcPath, destPath);
+      }
+    } catch {
+      // Ignore read/permission errors on system files
     }
   }
 }
