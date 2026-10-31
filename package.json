@@ -1,0 +1,30 @@
+{
+  "name": "swarm-engine",
+  "version": "1.0.0",
+  "description": "Multi-agent swarm orchestration CLI, stdio MCP server, and Fable TUI dashboard",
+  "type": "module",
+  "bin": {
+    "swarm-engine": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PRIYAGDEV/swarm-engine.git"
+  },
+  "author": "PRIYAGDEV",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "start": "node dist/index.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
