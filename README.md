@@ -134,7 +134,32 @@ swarm-engine reset --hard
 
 ---
 
-## 🔌 Connecting to AI Coding Assistants (MCP Setup)
+## 🧠 Use as an Agent Skill (Recommended: Zero Configuration — Skip MCP!)
+
+You don't need to configure MCP JSON files or manage background stdio servers! Swarm Engine is packaged as a first-class **Agent Skill** ([`skills/swarm-engine/SKILL.md`](skills/swarm-engine/SKILL.md)).
+
+AI coding assistants (**Antigravity**, **Kilo Code**, **Claude Code**, **Cursor**, **Cline**, **Roo Code**) can drive Swarm Engine directly through terminal tool calls:
+
+```bash
+# 1. Initialize swarm in any workspace
+swarm-engine init "Refactor architecture and write unit tests" --concurrency 4
+
+# 2. Launch autonomous execution with live visual cards (auto-detects models!)
+swarm-engine run "Refactor architecture and write unit tests"
+
+# 3. Check real-time progress
+swarm-engine status
+swarm-engine status --table
+swarm-engine status --json
+```
+
+#### How to Install the Skill:
+- **Global User Skills**: Copy the `skills/swarm-engine` folder into your agent's skills directory (e.g. `~/.gemini/config/skills/swarm-engine`).
+- **Workspace Skill**: Keep `skills/swarm-engine/SKILL.md` directly inside your project repository.
+
+---
+
+## 🔌 Optional: Connecting via MCP (Model Context Protocol)
 
 Swarm Engine implements the official **Model Context Protocol (MCP)** specification. Connect it to your preferred AI coding assistant:
 

@@ -13,6 +13,12 @@
   },
   "author": "PRIYAGDEV",
   "license": "MIT",
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
