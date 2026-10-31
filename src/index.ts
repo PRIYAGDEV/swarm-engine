@@ -326,12 +326,13 @@ async function handleInit(args: string[], cwd: string = process.cwd()): Promise<
 
   // Parse workerCommand
   const workerCommand = getFlagValue(args, "--worker");
+  const leaderModel = getFlagValue(args, "--leader-model") || getFlagValue(args, "-lm") || process.env.SWARM_LEADER_MODEL || process.env.LEADER_MODEL || undefined;
 
   // Create .swarm and .swarm/worktrees
   await fs.mkdir(path.join(swarmDir, "worktrees"), { recursive: true });
 
   // Initialize state
-  await initState(mission, concurrency, workerCommand, swarmDir);
+  await initState(mission, concurrency, workerCommand, swarmDir, leaderModel);
 
   // Safeguard 2: Update .gitignore
   await ensureGitignore(cwd);
@@ -587,9 +588,10 @@ async function handleRun(args: string[], cwd: string = process.cwd()): Promise<v
   if (!state || force) {
     const mission = args.find((a) => !a.startsWith("-")) || "Autonomous Multi-Agent Mission";
     const concurrency = parseInt(getFlagValue(args, "--concurrency") || "4", 10);
+    const leaderModel = getFlagValue(args, "--leader-model") || getFlagValue(args, "-lm") || process.env.SWARM_LEADER_MODEL || process.env.LEADER_MODEL || undefined;
     const userModel = getFlagValue(args, "--model") || getFlagValue(args, "-m") || process.env.SWARM_MODEL || process.env.MODEL || undefined;
 
-    await initState(mission, concurrency, undefined, swarmDir);
+    await initState(mission, concurrency, undefined, swarmDir, leaderModel);
     await updateState((s) => {
       s.agents["worker-1"] = {
         id: "worker-1",

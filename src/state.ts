@@ -57,6 +57,7 @@ export interface AgentNode {
  */
 export interface SwarmState {
   mission: string;
+  leaderModel?: string;
   maxConcurrency: number;
   workerCommand?: string;
   agents: Record<string, AgentNode>;
@@ -228,13 +229,15 @@ export async function initState(
   mission: string,
   maxConcurrency: number = 4,
   workerCommand?: string,
-  swarmDir?: string
+  swarmDir?: string,
+  leaderModel?: string
 ): Promise<SwarmState> {
   const dir = swarmDir || getSwarmDir();
   await fs.mkdir(dir, { recursive: true });
 
   const initialState: SwarmState = {
     mission,
+    leaderModel: leaderModel || process.env.SWARM_LEADER_MODEL || undefined,
     maxConcurrency,
     workerCommand,
     agents: {},

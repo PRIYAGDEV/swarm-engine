@@ -77,6 +77,10 @@ export function createMcpServer(): McpServer {
     "Initialize or schedule a multi-agent swarm with an overarching mission, concurrency ceiling, optional background worker command, and a list of agent specifications forming a DAG.",
     {
       mission: z.string().describe("Overall mission statement or goal for the swarm"),
+      leaderModel: z
+        .string()
+        .optional()
+        .describe("Model identifier used by the leader/orchestrator agent (e.g. 'claude-3-7-sonnet', 'gpt-4o')"),
       maxConcurrency: z
         .number()
         .int()
@@ -112,7 +116,7 @@ export function createMcpServer(): McpServer {
         .default([])
         .describe("List of initial agent definitions"),
     },
-    async ({ mission, maxConcurrency, workerCommand, agents }) => {
+    async ({ mission, leaderModel, maxConcurrency, workerCommand, agents }) => {
       try {
         const agentSpecs = (agents || []).map((a) => ({
           id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
@@ -147,7 +151,7 @@ export function createMcpServer(): McpServer {
           };
         }
 
-        await initState(mission, maxConcurrency, workerCommand);
+        await initState(mission, maxConcurrency, workerCommand, undefined, leaderModel);
 
         await updateState((state) => {
           for (const spec of agentSpecs) {
@@ -572,6 +576,7 @@ export function createMcpServer(): McpServer {
               text: JSON.stringify({
                 initialized: true,
                 mission: state.mission,
+                leaderModel: state.leaderModel,
                 maxConcurrency: state.maxConcurrency,
                 summary,
                 counts: summary,

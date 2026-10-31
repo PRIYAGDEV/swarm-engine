@@ -265,14 +265,15 @@ export function renderAgentCard(agent, width, telemetry, index, sessionStartTime
     const tokenCount = agent.tokens || telemetry.estimatedTokens;
     const tokenStr = `↓ ${formatTokens(tokenCount)}`;
     // Header border with embedded title & model:
-    // ╭ * opus-1 ──────────────────── [role] · [model] ╮
     const starSymbol = `${c.brightYellow}*${c.reset}`;
     const agentTitle = `${c.bold}${c.brightWhite}${agent.id}${c.reset}`;
-    const modelText = agent.model ? ` · ${agent.model}` : "";
-    const roleAndModel = `${agent.role || "worker"}${modelText}`;
-    const roleText = `${c.gray}${truncate(roleAndModel, 26)}${c.reset}`;
+    // Model display: prioritize displaying user-configured model prominently
+    const displayLabel = agent.model
+        ? (agent.role && agent.role !== "worker" ? `${agent.role} · ${agent.model}` : agent.model)
+        : (agent.role || "worker");
+    const roleText = `${c.gray}${truncate(displayLabel, 26)}${c.reset}`;
     const leftHeaderVisual = `* ${agent.id} `;
-    const rightHeaderVisual = ` ${truncate(roleAndModel, 26)} `;
+    const rightHeaderVisual = ` ${truncate(displayLabel, 26)} `;
     const neededDashes = Math.max(2, width - 2 - leftHeaderVisual.length - rightHeaderVisual.length);
     const topBorder = `${c.gray}╭ ${starSymbol} ${agentTitle} ${c.gray}${"─".repeat(neededDashes)} ${roleText} ${c.gray}╮${c.reset}`;
     const bottomBorder = `${c.gray}╰${"─".repeat(width - 2)}╯${c.reset}`;
@@ -429,21 +430,30 @@ export async function renderDashboard(state, cwd = process.cwd(), startTime = Da
     // Short cwd for title bar (e.g., "~/Swarm-engine")
     const shortCwd = `~/${path.basename(cwd)}`;
     // Find models configured on agents
-    const modelList = Array.from(new Set(agents.map((a) => a.model).filter(Boolean)));
-    const modelDisplay = modelList.length > 0 ? `workers : ${modelList.join(" : ")}` : `${total} × workers`;
+    const workerModels = Array.from(new Set(agents.map((a) => a.model).filter(Boolean)));
+    const leaderModel = state.leaderModel || process.env.SWARM_LEADER_MODEL || process.env.LEADER_MODEL || undefined;
+    const leaderDisplay = leaderModel
+        ? `${c.brightWhite}${leaderModel}${c.reset} ${c.dim}· ${total} subagents${c.reset}`
+        : `${c.dim}orchestrator · ${total} subagents${c.reset}`;
+    const workerModelDisplay = workerModels.length > 0 ? `workers : ${workerModels.join(" : ")}` : `${total} × workers`;
     // =========================================================================
-    // 1. TOP STATUSLINE (Matching Image 1 & 2)
+    // 1. TOP STATUSLINE
     // =========================================================================
-    const statusLineLeft = `${c.bold}swarm-engine${c.reset} ${c.dim}->${c.reset} ${c.brightYellow}${total} × workers${c.reset} ${c.dim}·${c.reset} ${c.white}${shortCwd}${c.reset}`;
+    const topWorkerSummary = workerModels.length === 1
+        ? `${total} × ${workerModels[0]}`
+        : workerModels.length > 0
+            ? `${total} × workers (${workerModels.join(", ")})`
+            : `${total} × workers`;
+    const statusLineLeft = `${c.bold}swarm-engine${c.reset} ${c.dim}->${c.reset} ${c.brightYellow}${topWorkerSummary}${c.reset} ${c.dim}·${c.reset} ${c.white}${shortCwd}${c.reset}`;
     const statusLineRight = `${c.dim}↓${c.reset} ${c.white}${formatTokens(totalTokens)}${c.reset} ${c.dim}·${c.reset} ${c.brightYellow}${elapsed}${c.reset} `;
     const padStatus = terminalWidth - stripAnsi(statusLineLeft).length - stripAnsi(statusLineRight).length;
     lines.push(`${statusLineLeft}${" ".repeat(Math.max(1, padStatus))}${statusLineRight}`);
     // =========================================================================
-    // 2. LEAD / ORCHESTRATOR CARD (Matching Image 1 & 2)
+    // 2. LEAD / ORCHESTRATOR CARD
     // =========================================================================
     const leadTag = `${c.bgYellow}${c.black}${c.bold} lead ${c.reset}`;
-    const leadTitleLeft = `${c.brightYellow}*${c.reset} ${c.bold}${c.brightWhite}swarm${c.reset}  ${leadTag} ${c.dim}orchestrator${c.reset}`;
-    const leadTitleRight = `${c.dim}${modelDisplay}${c.reset} `;
+    const leadTitleLeft = `${c.brightYellow}*${c.reset} ${c.bold}${c.brightWhite}swarm${c.reset}  ${leadTag} ${leaderDisplay}`;
+    const leadTitleRight = `${c.dim}${workerModelDisplay}${c.reset} `;
     const padLead = terminalWidth - stripAnsi(leadTitleLeft).length - stripAnsi(leadTitleRight).length;
     lines.push(`${leadTitleLeft}${" ".repeat(Math.max(1, padLead))}${leadTitleRight}`);
     // Mission / status dispatches
