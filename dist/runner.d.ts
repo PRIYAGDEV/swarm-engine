@@ -7,7 +7,7 @@
  *   ● Bash(command) -> runs shell commands, captures test output ("29 passed", "built in 10.1s")
  *   ● Read(path) -> reads target files ("Read 159 lines")
  * - Streams live action logs and token telemetry to the Fable TUI dashboard
- * - Connects to Ollama (qwen3-coder, llama3.1, gemma3) or API providers when available,
+ * - Connects to local LLMs (via Ollama) or API providers when configured,
  *   with an autonomous task execution engine for local/offline environments
  * - Upon completion, automatically merges worktree and unblocks downstream DAG agents
  */

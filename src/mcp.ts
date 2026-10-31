@@ -93,7 +93,7 @@ export function createMcpServer(): McpServer {
           z.object({
             id: z.string().optional().describe("Optional unique agent ID"),
             role: z.string().describe("Agent role (e.g., 'backend_developer')"),
-            model: z.string().optional().describe("Model name (e.g. 'qwen3-coder:30b', 'llama3.1:8b', 'claude opus')"),
+            model: z.string().optional().describe("User-configured model identifier or name (optional)"),
             systemPrompt: z.string().optional().describe("Custom instructions and system prompt for the agent"),
             taskSpec: z.string().describe("Detailed task requirements and specifications for this agent"),
             dependsOn: z
@@ -117,7 +117,7 @@ export function createMcpServer(): McpServer {
         const agentSpecs = (agents || []).map((a) => ({
           id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
           role: a.role,
-          model: a.model || process.env.SWARM_DEFAULT_MODEL || "claude-3-5-sonnet",
+          model: a.model || process.env.SWARM_MODEL || undefined,
           systemPrompt: a.systemPrompt,
           taskSpec: a.taskSpec,
           dependsOn: a.dependsOn || [],
@@ -213,7 +213,7 @@ export function createMcpServer(): McpServer {
     {
       id: z.string().optional().describe("Optional unique agent ID"),
       role: z.string().describe("Role or specialization of the dynamic agent"),
-      model: z.string().optional().describe("Model name (e.g. 'qwen3-coder:30b', 'llama3.1:8b', 'claude opus')"),
+      model: z.string().optional().describe("User-configured model identifier or name (optional)"),
       taskSpec: z.string().describe("Detailed task specification and guidelines for this agent"),
       systemPrompt: z.string().optional().describe("Optional custom system prompt"),
       dependsOn: z
@@ -272,7 +272,7 @@ export function createMcpServer(): McpServer {
         const newAgent: AgentNode = {
           id: agentId,
           role,
-          model: model || process.env.SWARM_DEFAULT_MODEL || "claude-3-5-sonnet",
+          model: model || process.env.SWARM_MODEL || undefined,
           systemPrompt,
           taskSpec,
           dependsOn: dependsOn || [],
@@ -552,7 +552,7 @@ export function createMcpServer(): McpServer {
           : agentsList.map((a) => ({
               id: a.id,
               role: a.role,
-              model: a.model || "claude-3-5-sonnet",
+              model: a.model,
               status: a.status,
               dependsOn: a.dependsOn,
               targetFiles: a.targetFiles,

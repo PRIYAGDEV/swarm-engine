@@ -36,26 +36,47 @@ Swarm Engine strictly enforces four core operational safeguards across all modul
 
 ## Installation & Quickstart
 
-### 1. Direct Execution via `npx`
-Run directly from any terminal without global installation:
+### 1. Installation
+
+Install Swarm Engine globally to run the `swarm-engine` command anywhere:
 
 ```bash
-# Initialize Swarm Engine in your project workspace
-npx swarm-engine init "Refactor payment processing pipeline" --concurrency 4
+# Install globally
+npm install -g swarm-engine
+
+# Or inside this repository (local development):
+npm install
+npm run build
+npm link
 ```
 
-### 2. Local Installation & Development
+### 2. Initializing & Running Missions
+
+You can run Swarm Engine directly via CLI or `npx`:
+
+```bash
+# Initialize Swarm Engine in any project repository
+swarm-engine init "Build and verify feature architecture" --concurrency 4
+
+# Or launch autonomous execution with the live Fable TUI dashboard
+swarm-engine run "Automated feature refactoring and test suite" --concurrency 4
+
+# Run on-demand without prior global installation
+npx swarm-engine init "Your mission description" --concurrency 4
+```
+
+### 3. Local Development from Source
 ```bash
 # Clone the repository
-git clone https://github.com/owner/swarm-engine.git
+git clone https://github.com/PRIYAGDEV/swarm-engine.git
 cd Swarm-engine
 
 # Install dependencies and build
 npm install
 npm run build
 
-# Link CLI executable locally
-npm link
+# Run tests (56 automated tests across 6 tiers)
+npm test
 ```
 
 ---
@@ -129,7 +150,7 @@ When connected via MCP, Swarm Engine exposes 9 core tools:
 
 | Tool Name | Description | Key Arguments | Return Value |
 |:---|:---|:---|:---|
-| `spawn_swarm` | Initializes or reconfigures a multi-agent swarm mission, sets concurrency limit, and queues 1..N initial agents forming a DAG. Supports model targeting (`qwen3-coder:30b`, `llama3.1:8b`, `claude opus`). | `mission` (string)<br>`maxConcurrency` (number, opt)<br>`workerCommand` (string, opt)<br>`agents` (array of agent configs) | `{ success, mission, maxConcurrency, totalAgents, runningAgents, pendingAgents, activeLocks }` |
+| `spawn_swarm` | Initializes or reconfigures a multi-agent swarm mission, sets concurrency limit, and queues 1..N initial agents forming a DAG. Supports dynamic model targeting configured by user/client (e.g. via model parameter or environment variables). | `mission` (string)<br>`maxConcurrency` (number, opt)<br>`workerCommand` (string, opt)<br>`agents` (array of agent configs) | `{ success, mission, maxConcurrency, totalAgents, runningAgents, pendingAgents, activeLocks }` |
 | `add_dynamic_agent` | Adds an on-the-fly specialist agent mid-flight during swarm execution, automatically validating dependencies and scheduling. | `role` (string)<br>`model` (string, opt)<br>`taskSpec` (string)<br>`systemPrompt` (string, opt)<br>`dependsOn` (string[], opt)<br>`targetFiles` (string[], opt) | `{ success, agent, scheduled, reason }` |
 | `pull_agent_task` | Claims or inspects the next ready task (or a specific agent ID), returning the worktree path, task spec, system prompt, and blackboard memory. | `agentId` (string, opt) | `{ success, agentId, role, status, worktreePath, branchName, taskSpec, targetFiles, blackboard }` |
 | `record_agent_action` | Records a live tool action (`Edit`, `Read`, `Bash`, `Update`) with diff lines or test outputs to stream to the Fable TUI dashboard. | `agentId` (string)<br>`actionType` ("edit"\|"read"\|"bash"\|"update")<br>`target` (string)<br>`detail` (string, opt)<br>`diffs` (array, opt) | `{ success, agentId, actionType, target }` |
@@ -149,7 +170,7 @@ The `swarm-engine` executable provides intuitive subcommands for administration 
 Initializes the `.swarm/` directory, updates `.gitignore` (Safeguard 2), creates `AGENTS.md` in the workspace root, and prints MCP configuration snippets.
 
 ```bash
-swarm-engine init "Refactor Authentication System" --concurrency 4
+swarm-engine init "Your multi-agent mission" --concurrency 4
 ```
 **Options:**
 - `--concurrency <num>`: Maximum number of concurrently running agents (default: `4`).

@@ -522,13 +522,14 @@ async function handleRun(args, cwd = process.cwd()) {
     if (!state || force) {
         const mission = args.find((a) => !a.startsWith("-")) || "Autonomous Multi-Agent Mission";
         const concurrency = parseInt(getFlagValue(args, "--concurrency") || "4", 10);
+        const userModel = getFlagValue(args, "--model") || getFlagValue(args, "-m") || process.env.SWARM_MODEL || process.env.MODEL || undefined;
         await initState(mission, concurrency, undefined, swarmDir);
         await updateState((s) => {
             s.agents["worker-1"] = {
                 id: "worker-1",
                 role: "refactor_specialist",
-                model: "qwen3-coder:30b",
-                taskSpec: "Fix every lint error. Do not delete anything.",
+                model: userModel,
+                taskSpec: "Fix lint errors and refactor codebase.",
                 dependsOn: [],
                 targetFiles: ["src/coach/aiCoach.ts"],
                 status: "pending",
@@ -536,7 +537,7 @@ async function handleRun(args, cwd = process.cwd()) {
             s.agents["worker-2"] = {
                 id: "worker-2",
                 role: "test_engineer",
-                model: "llama3.1:8b",
+                model: userModel,
                 taskSpec: "Fix lint errors in plans and Deload functions.",
                 dependsOn: [],
                 targetFiles: ["src/coach/plan.ts"],
@@ -545,7 +546,7 @@ async function handleRun(args, cwd = process.cwd()) {
             s.agents["worker-3"] = {
                 id: "worker-3",
                 role: "cleanup_agent",
-                model: "gemma3:1b",
+                model: userModel,
                 taskSpec: "Audit dead code and run lint error verification.",
                 dependsOn: ["worker-1"],
                 targetFiles: ["src/ui/RepCounter.tsx"],

@@ -290,7 +290,7 @@ export function renderAgentCard(
   const tokenStr = `↓ ${formatTokens(tokenCount)}`;
 
   // Header border with embedded title & model:
-  // ╭ * opus-1 ──────────────────── claude opus ╮  or  qwen3-coder:30b
+  // ╭ * opus-1 ──────────────────── [role] · [model] ╮
   const starSymbol = `${c.brightYellow}*${c.reset}`;
   const agentTitle = `${c.bold}${c.brightWhite}${agent.id}${c.reset}`;
   const modelText = agent.model ? ` · ${agent.model}` : "";
