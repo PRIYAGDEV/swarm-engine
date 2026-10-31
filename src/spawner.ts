@@ -329,10 +329,16 @@ export async function tickScheduler(cwd: string = process.cwd()): Promise<void> 
         (a) => a.status === "running"
       );
       const runningCount = runningAgents.length;
-      const maxConcurrency = state.maxConcurrency || 4;
-      let availableSlots = maxConcurrency - runningCount;
+      const isUnlimited =
+        state.maxConcurrency === undefined ||
+        state.maxConcurrency === null ||
+        state.maxConcurrency <= 0 ||
+        state.maxConcurrency === Infinity;
 
-      if (availableSlots <= 0) {
+      const maxConcurrency = isUnlimited ? Infinity : (state.maxConcurrency as number);
+      let availableSlots = isUnlimited ? Infinity : maxConcurrency - runningCount;
+
+      if (!isUnlimited && availableSlots <= 0) {
         return;
       }
 
@@ -357,7 +363,7 @@ export async function tickScheduler(cwd: string = process.cwd()): Promise<void> 
       );
 
       for (const agent of pendingAgents) {
-        if (availableSlots <= 0) break;
+        if (!isUnlimited && availableSlots <= 0) break;
 
         // 1. Dependency check: all dependsOn agent IDs must be 'completed'
         const dependsOn = agent.dependsOn || [];
@@ -388,7 +394,7 @@ export async function tickScheduler(cwd: string = process.cwd()): Promise<void> 
           }
           currentlyLocked.add(normPath);
         }
-        availableSlots--;
+        if (!isUnlimited) availableSlots--;
 
         // 4. Create worktree & inject AGENT_TASK.md
         const worktreePath = await createWorktree(agent, state, cwd);

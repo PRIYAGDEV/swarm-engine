@@ -50,7 +50,7 @@ export interface AgentNode {
 export interface SwarmState {
     mission: string;
     leaderModel?: string;
-    maxConcurrency: number;
+    maxConcurrency?: number;
     workerCommand?: string;
     agents: Record<string, AgentNode>;
     blackboard: Record<string, unknown>;

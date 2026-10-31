@@ -149,14 +149,14 @@ export async function acquireLock(swarmDir, timeoutMs = 10000) {
 /**
  * Initializes the swarm state and persists it to .swarm/state.json.
  */
-export async function initState(mission, maxConcurrency = 4, workerCommand, swarmDir, leaderModel) {
+export async function initState(mission, maxConcurrency = 0, workerCommand, swarmDir, leaderModel) {
     const dir = swarmDir || getSwarmDir();
     await fs.mkdir(dir, { recursive: true });
     const detected = detectActiveModelsSync(path.dirname(dir));
     const initialState = {
         mission,
         leaderModel: leaderModel || detected.leaderModel || undefined,
-        maxConcurrency,
+        maxConcurrency: maxConcurrency !== undefined ? maxConcurrency : 0, // 0 = infinite / unlimited
         workerCommand,
         agents: {},
         blackboard: {},

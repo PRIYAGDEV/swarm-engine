@@ -318,7 +318,7 @@ async function handleInit(args: string[], cwd: string = process.cwd()): Promise<
   }
 
   // Parse concurrency
-  let concurrency = 4;
+  let concurrency = 0; // Default 0 = infinite / unlimited concurrency
   const concurrencyStr = getFlagValue(args, "--concurrency");
   if (concurrencyStr) {
     const parsed = parseInt(concurrencyStr, 10);
@@ -589,7 +589,8 @@ async function handleRun(args: string[], cwd: string = process.cwd()): Promise<v
   const force = hasFlag(args, "--force", "-f");
   if (!state || force) {
     const mission = args.find((a) => !a.startsWith("-")) || "Autonomous Multi-Agent Mission";
-    const concurrency = parseInt(getFlagValue(args, "--concurrency") || "4", 10);
+    const concurrencyStr = getFlagValue(args, "--concurrency");
+    const concurrency = concurrencyStr ? parseInt(concurrencyStr, 10) : 0; // 0 = unlimited/infinite
     const workerCountStr = getFlagValue(args, "--workers") || getFlagValue(args, "--agents") || getFlagValue(args, "-w");
     const numWorkers = workerCountStr ? Math.max(1, Math.min(16, parseInt(workerCountStr, 10))) : 3;
 

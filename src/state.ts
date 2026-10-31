@@ -59,7 +59,7 @@ export interface AgentNode {
 export interface SwarmState {
   mission: string;
   leaderModel?: string;
-  maxConcurrency: number;
+  maxConcurrency?: number;
   workerCommand?: string;
   agents: Record<string, AgentNode>;
   blackboard: Record<string, unknown>;
@@ -228,7 +228,7 @@ export async function acquireLock(
  */
 export async function initState(
   mission: string,
-  maxConcurrency: number = 4,
+  maxConcurrency: number = 0,
   workerCommand?: string,
   swarmDir?: string,
   leaderModel?: string
@@ -240,7 +240,7 @@ export async function initState(
   const initialState: SwarmState = {
     mission,
     leaderModel: leaderModel || detected.leaderModel || undefined,
-    maxConcurrency,
+    maxConcurrency: maxConcurrency !== undefined ? maxConcurrency : 0, // 0 = infinite / unlimited
     workerCommand,
     agents: {},
     blackboard: {},
