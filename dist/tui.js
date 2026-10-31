@@ -2,12 +2,15 @@
  * Swarm Engine — Interactive Multi-Agent Terminal TUI (Fable-inspired Dashboard)
  *
  * Replicates the high-density visual aesthetic of Fable 5.1 by @programmergrind:
- * - Top lead orchestrator card with mission telemetry and live dispatch stream
- * - 2-column rounded card grid with embedded border headers (* agent-id ─── role)
- * - Live worktree diff inspection (+green additions / -red deletions)
- * - Agent action tree branches (● Action -> └ Details)
- * - Dynamic agent activity ticker (Whispering, Seating, Courting, Shipping, etc.)
- * - Bottom tmux/status bar ([swarm-engine] 0:agents* 1:lead ● X/N done)
+ * - Top lead orchestrator card with mission telemetry, worker models, and dispatch stream
+ * - 2-column rounded card grid with embedded border headers (* agent-id ─── model/role)
+ * - Real-time action stream:
+ *   ● Edit(path) -> produces live +/- code diffs with line numbers (red deletions, green additions)
+ *   ● Bash(command) -> displays test output ("29 passed", "built in 10.1s", "0 errors")
+ *   ● Read(path) -> displays file line counts ("Read 159 lines")
+ * - Dynamic agent activity ticker (Whispering, Seating, Courting, Pruning, Simmering, Shipping)
+ * - Live token throughput (e.g. ": Pruning... (5s · 61 tok/s · 293)" or "● Whispering... (↓ 110.1k)")
+ * - Bottom tmux/status bar ([swarm-engine] 0:agents* 1:lead ● X/N done · +add -del lines)
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -96,7 +99,7 @@ export function inspectWorktree(worktreePath) {
         return empty;
     }
     try {
-        // 1. Read AGENT_TASK.md if present to extract task context
+        // 1. Read AGENT_TASK.md if present to extract assigned task context
         const taskPath = path.join(worktreePath, "AGENT_TASK.md");
         let taskSnippet;
         if (fs.existsSync(taskPath)) {
@@ -168,17 +171,22 @@ export function inspectWorktree(worktreePath) {
                 encoding: "utf8",
             });
             const rawDiffLines = diffRaw.split(/\r?\n/);
+            let curLine = 1;
             for (const dl of rawDiffLines) {
-                if (dl.startsWith("+") && !dl.startsWith("+++") && diffSnippets.filter((d) => d.type === "add").length < 2) {
+                const matchHeader = dl.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                if (matchHeader) {
+                    curLine = parseInt(matchHeader[2], 10);
+                }
+                else if (dl.startsWith("+") && !dl.startsWith("+++") && diffSnippets.filter((d) => d.type === "add").length < 2) {
                     const clean = dl.substring(1).trim();
                     if (clean.length > 0) {
-                        diffSnippets.push({ type: "add", line: clean });
+                        diffSnippets.push({ type: "add", line: clean, lineNo: curLine });
                     }
                 }
                 else if (dl.startsWith("-") && !dl.startsWith("---") && diffSnippets.filter((d) => d.type === "del").length < 2) {
                     const clean = dl.substring(1).trim();
                     if (clean.length > 0) {
-                        diffSnippets.push({ type: "del", line: clean });
+                        diffSnippets.push({ type: "del", line: clean, lineNo: curLine });
                     }
                 }
             }
@@ -224,10 +232,12 @@ const FABLE_VERBS = [
     "Polishing...",
     "Harmonizing...",
 ];
-function getAgentVerb(agentId, index) {
+function getAgentVerb(agent, index) {
+    if (agent.verb)
+        return agent.verb;
     let hash = index;
-    for (let i = 0; i < agentId.length; i++) {
-        hash = (hash << 5) - hash + agentId.charCodeAt(i);
+    for (let i = 0; i < agent.id.length; i++) {
+        hash = (hash << 5) - hash + agent.id.charCodeAt(i);
     }
     return FABLE_VERBS[Math.abs(hash) % FABLE_VERBS.length];
 }
@@ -240,8 +250,8 @@ function truncate(str, maxLen) {
     return str.substring(0, Math.max(0, maxLen - 3)) + "...";
 }
 /**
- * Renders a single Fable-style agent card matching Image 2:
- * ╭ * agent-1 ─────────────────────── claude opus ╮
+ * Renders a single Fable-style agent card matching Image 1 & Image 2:
+ * ╭ * opus-1 ─────────────────────── claude opus ╮
  * │   └ Read 159 lines                            │
  * │ ● Update(scene/candles.ts)                    │
  * │   + glow = 0.8                                │
@@ -251,15 +261,17 @@ function truncate(str, maxLen) {
 export function renderAgentCard(agent, width, telemetry, index, sessionStartTime) {
     const contentWidth = Math.max(20, width - 4); // inner line width excluding '│ ' and ' │'
     const elapsed = formatDuration(Date.now() - sessionStartTime);
-    const verb = getAgentVerb(agent.id, index);
-    const tokenStr = `↓ ${formatTokens(telemetry.estimatedTokens)}`;
-    // Header border with embedded title:
-    // ╭ * opus-1 ──────────────────── claude opus ╮
+    const verb = getAgentVerb(agent, index);
+    const tokenCount = agent.tokens || telemetry.estimatedTokens;
+    const tokenStr = `↓ ${formatTokens(tokenCount)}`;
+    // Header border with embedded title & model:
+    // ╭ * opus-1 ──────────────────── claude opus ╮  or  qwen3-coder:30b
     const starSymbol = `${c.brightYellow}*${c.reset}`;
     const agentTitle = `${c.bold}${c.brightWhite}${agent.id}${c.reset}`;
-    const roleText = `${c.gray}${truncate(agent.role || "worker", 16)}${c.reset}`;
+    const modelOrRole = agent.model || agent.role || "worker";
+    const roleText = `${c.gray}${truncate(modelOrRole, 18)}${c.reset}`;
     const leftHeaderVisual = `* ${agent.id} `;
-    const rightHeaderVisual = ` ${truncate(agent.role || "worker", 16)} `;
+    const rightHeaderVisual = ` ${truncate(modelOrRole, 18)} `;
     const neededDashes = Math.max(2, width - 2 - leftHeaderVisual.length - rightHeaderVisual.length);
     const topBorder = `${c.gray}╭ ${starSymbol} ${agentTitle} ${c.gray}${"─".repeat(neededDashes)} ${roleText} ${c.gray}╮${c.reset}`;
     const bottomBorder = `${c.gray}╰${"─".repeat(width - 2)}╯${c.reset}`;
@@ -269,12 +281,55 @@ export function renderAgentCard(agent, width, telemetry, index, sessionStartTime
         return `${c.gray}│${c.reset} ${content}${" ".repeat(padding)} ${c.gray}│${c.reset}`;
     };
     const rows = [];
-    // Determine lines based on agent status and telemetry
+    // Determine lines based on agent status, action history, and telemetry
     if (agent.status === "running") {
-        // 1. First line: file action or status
-        if (telemetry.recentAction) {
+        const actions = agent.actions || [];
+        const latestAction = actions.length > 0 ? actions[actions.length - 1] : undefined;
+        if (latestAction) {
+            // 1. Tool action line
+            if (latestAction.type === "edit" || latestAction.type === "update") {
+                rows.push(`${c.brightGreen}●${c.reset} ${c.white}Edit(${truncate(latestAction.target, contentWidth - 8)})${c.reset}`);
+                if (latestAction.diffs && latestAction.diffs.length > 0) {
+                    for (const d of latestAction.diffs.slice(0, 2)) {
+                        const prefix = d.lineNo ? `${d.lineNo} ` : "";
+                        if (d.type === "del") {
+                            rows.push(`${c.brightRed}  ${prefix}- ${truncate(d.line, contentWidth - 6)}${c.reset}`);
+                        }
+                        else {
+                            rows.push(`${c.brightGreen}  ${prefix}+ ${truncate(d.line, contentWidth - 6)}${c.reset}`);
+                        }
+                    }
+                }
+                else if (latestAction.detail) {
+                    rows.push(`${c.gray}  └ ${latestAction.detail}${c.reset}`);
+                }
+            }
+            else if (latestAction.type === "bash") {
+                rows.push(`${c.brightCyan}●${c.reset} ${c.white}Bash(${truncate(latestAction.target, contentWidth - 8)})${c.reset}`);
+                if (latestAction.detail) {
+                    rows.push(`${c.gray}  └ ${latestAction.detail}${c.reset}`);
+                }
+            }
+            else if (latestAction.type === "read") {
+                rows.push(`${c.brightYellow}●${c.reset} ${c.white}Read(${truncate(latestAction.target, contentWidth - 8)})${c.reset}`);
+                if (latestAction.detail) {
+                    rows.push(`${c.gray}  └ ${latestAction.detail}${c.reset}`);
+                }
+            }
+        }
+        else if (telemetry.recentAction) {
             rows.push(`${c.brightGreen}●${c.reset} ${c.white}${truncate(telemetry.recentAction, contentWidth - 4)}${c.reset}`);
-            if (telemetry.subDetail) {
+            if (telemetry.diffSnippets.length > 0) {
+                for (const snip of telemetry.diffSnippets.slice(0, 1)) {
+                    if (snip.type === "add") {
+                        rows.push(`${c.brightGreen}  + ${truncate(snip.line, contentWidth - 5)}${c.reset}`);
+                    }
+                    else {
+                        rows.push(`${c.brightRed}  - ${truncate(snip.line, contentWidth - 5)}${c.reset}`);
+                    }
+                }
+            }
+            else if (telemetry.subDetail) {
                 rows.push(`${c.gray}  └ ${telemetry.subDetail}${c.reset}`);
             }
         }
@@ -288,25 +343,13 @@ export function renderAgentCard(agent, width, telemetry, index, sessionStartTime
             rows.push(`${c.brightCyan}●${c.reset} ${c.dim}> "${c.reset}${truncate(promptSnippet, contentWidth - 6)}${c.dim}"${c.reset}`);
             rows.push(`${c.gray}  └ Initializing worktree${c.reset}`);
         }
-        // 2. Middle line: code diff snippets (+green / -red) or task output
-        if (telemetry.diffSnippets.length > 0) {
-            for (const snip of telemetry.diffSnippets.slice(0, 1)) {
-                if (snip.type === "add") {
-                    rows.push(`${c.brightGreen}  + ${truncate(snip.line, contentWidth - 5)}${c.reset}`);
-                }
-                else {
-                    rows.push(`${c.brightRed}  - ${truncate(snip.line, contentWidth - 5)}${c.reset}`);
-                }
-            }
+        // Task thought line if present
+        if (agent.thought && rows.length < 3) {
+            rows.push(`${c.dim}> "${truncate(agent.thought, contentWidth - 4)}"${c.reset}`);
         }
-        else if (telemetry.additions > 0 || telemetry.deletions > 0) {
-            rows.push(`${c.gray}  └ ${c.brightGreen}+${telemetry.additions}${c.reset} ${c.brightRed}-${telemetry.deletions}${c.reset} lines`);
-        }
-        else {
-            rows.push(`${c.gray}  └ Clean working tree${c.reset}`);
-        }
-        // 3. Ticker line: e.g. "● Whispering... (33m 9s · ↓ 179.6k)"
-        rows.push(`${c.brightYellow}●${c.reset} ${c.white}${verb}${c.reset} ${c.gray}(${elapsed} · ${tokenStr})${c.reset}`);
+        // Ticker line with throughput or token count (e.g. ": Pruning... (5s · 61 tok/s · 293)" or "● Whispering... (↓ 110.1k)")
+        const speedInfo = agent.tokPerSec ? ` · ${agent.tokPerSec} tok/s` : "";
+        rows.push(`${c.brightYellow}●${c.reset} ${c.white}${verb}${c.reset} ${c.gray}(${elapsed}${speedInfo} · ${tokenStr})${c.reset}`);
     }
     else if (agent.status === "completed") {
         const summary = agent.outputSummary || "Task completed successfully";
@@ -368,26 +411,29 @@ export async function renderDashboard(state, cwd = process.cwd(), startTime = Da
         telemetryMap.set(agent.id, tel);
         totalAdditions += tel.additions;
         totalDeletions += tel.deletions;
-        totalTokens += tel.estimatedTokens;
+        totalTokens += agent.tokens || tel.estimatedTokens;
     }
     if (totalTokens === 0)
         totalTokens = 120_000;
     const lines = [];
     // Short cwd for title bar (e.g., "~/Swarm-engine")
     const shortCwd = `~/${path.basename(cwd)}`;
+    // Find models configured on agents
+    const modelList = Array.from(new Set(agents.map((a) => a.model).filter(Boolean)));
+    const modelDisplay = modelList.length > 0 ? `workers : ${modelList.join(" : ")}` : `${total} × workers`;
     // =========================================================================
-    // 1. TOP STATUSLINE (Matching Image 2: "fable -> 8 * opus · ~/code/datenight · ↓ 1.2M · $123.56 · 34m")
+    // 1. TOP STATUSLINE (Matching Image 1 & 2)
     // =========================================================================
     const statusLineLeft = `${c.bold}swarm-engine${c.reset} ${c.dim}->${c.reset} ${c.brightYellow}${total} × workers${c.reset} ${c.dim}·${c.reset} ${c.white}${shortCwd}${c.reset}`;
     const statusLineRight = `${c.dim}↓${c.reset} ${c.white}${formatTokens(totalTokens)}${c.reset} ${c.dim}·${c.reset} ${c.brightYellow}${elapsed}${c.reset} `;
     const padStatus = terminalWidth - stripAnsi(statusLineLeft).length - stripAnsi(statusLineRight).length;
     lines.push(`${statusLineLeft}${" ".repeat(Math.max(1, padStatus))}${statusLineRight}`);
     // =========================================================================
-    // 2. LEAD / ORCHESTRATOR CARD (Matching Image 2: "* fable [lead] ... Orchestrating")
+    // 2. LEAD / ORCHESTRATOR CARD (Matching Image 1 & 2)
     // =========================================================================
     const leadTag = `${c.bgYellow}${c.black}${c.bold} lead ${c.reset}`;
-    const leadTitleLeft = `${c.brightYellow}*${c.reset} ${c.bold}${c.brightWhite}swarm${c.reset}  ${leadTag}`;
-    const leadTitleRight = `${c.dim}swarm-engine · ${total} subagents${c.reset} `;
+    const leadTitleLeft = `${c.brightYellow}*${c.reset} ${c.bold}${c.brightWhite}swarm${c.reset}  ${leadTag} ${c.dim}orchestrator${c.reset}`;
+    const leadTitleRight = `${c.dim}${modelDisplay}${c.reset} `;
     const padLead = terminalWidth - stripAnsi(leadTitleLeft).length - stripAnsi(leadTitleRight).length;
     lines.push(`${leadTitleLeft}${" ".repeat(Math.max(1, padLead))}${leadTitleRight}`);
     // Mission / status dispatches
@@ -442,7 +488,7 @@ export async function renderDashboard(state, cwd = process.cwd(), startTime = Da
         }
     }
     // =========================================================================
-    // 4. BOTTOM STATUS BAR (Matching Image 2: "[datenight] 0:agents* 1:zsh ● 0/8 done · +7,173 -1,445 lines")
+    // 4. BOTTOM STATUS BAR (Matching Image 1 & 2)
     // =========================================================================
     const bottomBarLeft = `${c.bold}[swarm-engine]${c.reset} ${c.gray}0:agents* 1:orchestrator${c.reset} ${c.brightGreen}●${c.reset} ${c.bold}${completed}/${total} done${c.reset} ${c.dim}·${c.reset} ${c.brightGreen}+${totalAdditions}${c.reset} ${c.brightRed}-${totalDeletions}${c.reset} lines ${c.dim}·${c.reset} ${c.yellow}${activeLocks} locks${c.reset}`;
     const bottomBarRight = `${c.dim}q: quit  r: refresh${c.reset} `;

@@ -2,8 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import crypto from "node:crypto";
-import { initState, readState, updateState, normalizePath, } from "./state.js";
+import { initState, readState, updateState, recordAgentAction, updateAgentProgress, normalizePath, } from "./state.js";
 import { tickScheduler, mergeAndComplete, } from "./spawner.js";
+import { runAgentWorker } from "./runner.js";
 /**
  * Cycle detection helper using 3-color DFS traversal.
  * 0 = unvisited, 1 = visiting (current recursion stack), 2 = visited.
@@ -70,6 +71,7 @@ export function createMcpServer() {
             .array(z.object({
             id: z.string().optional().describe("Optional unique agent ID"),
             role: z.string().describe("Agent role (e.g., 'backend_developer')"),
+            model: z.string().optional().describe("Model name (e.g. 'qwen3-coder:30b', 'llama3.1:8b', 'claude opus')"),
             systemPrompt: z.string().optional().describe("Custom instructions and system prompt for the agent"),
             taskSpec: z.string().describe("Detailed task requirements and specifications for this agent"),
             dependsOn: z
@@ -91,6 +93,7 @@ export function createMcpServer() {
             const agentSpecs = (agents || []).map((a) => ({
                 id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
                 role: a.role,
+                model: a.model,
                 systemPrompt: a.systemPrompt,
                 taskSpec: a.taskSpec,
                 dependsOn: a.dependsOn || [],
@@ -121,6 +124,7 @@ export function createMcpServer() {
                     state.agents[spec.id] = {
                         id: spec.id,
                         role: spec.role,
+                        model: spec.model,
                         systemPrompt: spec.systemPrompt,
                         taskSpec: spec.taskSpec,
                         dependsOn: spec.dependsOn,
@@ -166,6 +170,7 @@ export function createMcpServer() {
     server.tool("add_dynamic_agent", "Add an on-the-fly specialist agent mid-execution to the running swarm. Automatically schedules or queues based on dependency resolution and file lock availability.", {
         id: z.string().optional().describe("Optional unique agent ID"),
         role: z.string().describe("Role or specialization of the dynamic agent"),
+        model: z.string().optional().describe("Model name (e.g. 'qwen3-coder:30b', 'llama3.1:8b', 'claude opus')"),
         taskSpec: z.string().describe("Detailed task specification and guidelines for this agent"),
         systemPrompt: z.string().optional().describe("Optional custom system prompt"),
         dependsOn: z
@@ -178,7 +183,7 @@ export function createMcpServer() {
             .optional()
             .default([])
             .describe("Files this agent will create or modify"),
-    }, async ({ id, role, taskSpec, systemPrompt, dependsOn, targetFiles }) => {
+    }, async ({ id, role, model, taskSpec, systemPrompt, dependsOn, targetFiles }) => {
         try {
             let state;
             try {
@@ -219,6 +224,7 @@ export function createMcpServer() {
             const newAgent = {
                 id: agentId,
                 role,
+                model,
                 systemPrompt,
                 taskSpec,
                 dependsOn: dependsOn || [],
@@ -494,6 +500,83 @@ export function createMcpServer() {
         }
         catch (err) {
             console.error("[swarm-engine] get_swarm_status error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 7: record_agent_action
+    server.tool("record_agent_action", "Record a real-time tool action (Edit, Read, Bash, Update) executed by an agent so it streams to the Fable TUI dashboard.", {
+        agentId: z.string().describe("Target agent ID"),
+        actionType: z.enum(["edit", "read", "bash", "update", "delete", "status"]).describe("Type of tool action"),
+        target: z.string().describe("Target file path or executed shell command"),
+        detail: z.string().optional().describe("Descriptive summary (e.g. 'Read 159 lines', '29 passed', 'Updated 2 lines')"),
+        diffs: z
+            .array(z.object({
+            type: z.enum(["add", "del"]),
+            line: z.string(),
+            lineNo: z.number().optional(),
+        }))
+            .optional()
+            .describe("Code diff lines (+ green, - red)"),
+    }, async ({ agentId, actionType, target, detail, diffs }) => {
+        try {
+            await recordAgentAction(agentId, {
+                type: actionType,
+                target,
+                detail,
+                diffs,
+            });
+            return {
+                content: [{ type: "text", text: JSON.stringify({ success: true, agentId, actionType, target }) }],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] record_agent_action error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 8: update_agent_progress
+    server.tool("update_agent_progress", "Update an agent's real-time telemetry: thought, poetic verb (Pruning, Simmering, etc.), tokens, and throughput (tok/s).", {
+        agentId: z.string().describe("Target agent ID"),
+        thought: z.string().optional().describe("Current task or reasoning thought"),
+        verb: z.string().optional().describe("Poetic action verb (e.g. 'Pruning...', 'Whispering...', 'Simmering...')"),
+        tokens: z.number().optional().describe("Estimated or accumulated tokens"),
+        tokPerSec: z.number().optional().describe("Real-time token speed (tok/s)"),
+    }, async ({ agentId, thought, verb, tokens, tokPerSec }) => {
+        try {
+            await updateAgentProgress(agentId, { thought, verb, tokens, tokPerSec });
+            return {
+                content: [{ type: "text", text: JSON.stringify({ success: true, agentId }) }],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] update_agent_progress error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 9: run_agent_task
+    server.tool("run_agent_task", "Triggers autonomous worker execution for an agent inside its isolated worktree (inspects files, applies edits, runs bash checks, merges on finish).", {
+        agentId: z.string().describe("Target agent ID to execute"),
+    }, async ({ agentId }) => {
+        try {
+            // Run in background / async
+            runAgentWorker(agentId).catch((err) => {
+                console.error(`[swarm-engine] Error running worker ${agentId}:`, err);
+            });
+            return {
+                content: [{ type: "text", text: JSON.stringify({ success: true, started: true, agentId }) }],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] run_agent_task error:", err);
             return {
                 isError: true,
                 content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],

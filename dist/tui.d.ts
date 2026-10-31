@@ -2,12 +2,15 @@
  * Swarm Engine — Interactive Multi-Agent Terminal TUI (Fable-inspired Dashboard)
  *
  * Replicates the high-density visual aesthetic of Fable 5.1 by @programmergrind:
- * - Top lead orchestrator card with mission telemetry and live dispatch stream
- * - 2-column rounded card grid with embedded border headers (* agent-id ─── role)
- * - Live worktree diff inspection (+green additions / -red deletions)
- * - Agent action tree branches (● Action -> └ Details)
- * - Dynamic agent activity ticker (Whispering, Seating, Courting, Shipping, etc.)
- * - Bottom tmux/status bar ([swarm-engine] 0:agents* 1:lead ● X/N done)
+ * - Top lead orchestrator card with mission telemetry, worker models, and dispatch stream
+ * - 2-column rounded card grid with embedded border headers (* agent-id ─── model/role)
+ * - Real-time action stream:
+ *   ● Edit(path) -> produces live +/- code diffs with line numbers (red deletions, green additions)
+ *   ● Bash(command) -> displays test output ("29 passed", "built in 10.1s", "0 errors")
+ *   ● Read(path) -> displays file line counts ("Read 159 lines")
+ * - Dynamic agent activity ticker (Whispering, Seating, Courting, Pruning, Simmering, Shipping)
+ * - Live token throughput (e.g. ": Pruning... (5s · 61 tok/s · 293)" or "● Whispering... (↓ 110.1k)")
+ * - Bottom tmux/status bar ([swarm-engine] 0:agents* 1:lead ● X/N done · +add -del lines)
  */
 import { type SwarmState, type AgentNode } from "./state.js";
 export declare const c: {
@@ -62,6 +65,7 @@ export interface WorktreeTelemetry {
     diffSnippets: {
         type: "add" | "del";
         line: string;
+        lineNo?: number;
     }[];
     recentAction: string;
     subDetail: string;
@@ -74,8 +78,8 @@ export interface WorktreeTelemetry {
  */
 export declare function inspectWorktree(worktreePath?: string): WorktreeTelemetry;
 /**
- * Renders a single Fable-style agent card matching Image 2:
- * ╭ * agent-1 ─────────────────────── claude opus ╮
+ * Renders a single Fable-style agent card matching Image 1 & Image 2:
+ * ╭ * opus-1 ─────────────────────── claude opus ╮
  * │   └ Read 159 lines                            │
  * │ ● Update(scene/candles.ts)                    │
  * │   + glow = 0.8                                │

@@ -23,9 +23,10 @@ import {
   getSwarmDir,
   SwarmState,
 } from "./state.js";
-import { pruneWorktrees, mergeAndComplete } from "./spawner.js";
+import { pruneWorktrees, mergeAndComplete, tickScheduler } from "./spawner.js";
 import { startMcpServer } from "./mcp.js";
 import { renderDashboard } from "./tui.js";
+import { runAgentWorker } from "./runner.js";
 
 /**
  * Helper to retrieve the string value of a command-line flag.
@@ -553,6 +554,80 @@ async function handleComplete(args: string[], cwd: string = process.cwd()): Prom
 }
 
 /**
+ * Handles the 'worker' subcommand to run an agent autonomously in its worktree.
+ */
+async function handleWorker(args: string[], cwd: string = process.cwd()): Promise<void> {
+  const agentId = args[0];
+  if (!agentId || agentId.startsWith("-")) {
+    console.error("Usage: swarm-engine worker <agentId>");
+    process.exit(1);
+  }
+
+  try {
+    await runAgentWorker(agentId, cwd);
+  } catch (err: any) {
+    console.error(`[swarm-engine worker] Error running agent ${agentId}:`, err.message || err);
+    process.exit(1);
+  }
+}
+
+/**
+ * Handles the 'run' / 'start' subcommand to launch autonomous multi-agent execution with live Fable TUI.
+ */
+async function handleRun(args: string[], cwd: string = process.cwd()): Promise<void> {
+  process.env.SWARM_AUTO_RUN = "1";
+  const swarmDir = getSwarmDir(cwd);
+
+  let state: SwarmState | undefined;
+  try {
+    state = await readState(swarmDir);
+  } catch {}
+
+  const force = hasFlag(args, "--force", "-f");
+  if (!state || force) {
+    const mission = args.find((a) => !a.startsWith("-")) || "Autonomous Multi-Agent Mission";
+    const concurrency = parseInt(getFlagValue(args, "--concurrency") || "4", 10);
+
+    await initState(mission, concurrency, undefined, swarmDir);
+    await updateState((s) => {
+      s.agents["worker-1"] = {
+        id: "worker-1",
+        role: "refactor_specialist",
+        model: "qwen3-coder:30b",
+        taskSpec: "Fix every lint error. Do not delete anything.",
+        dependsOn: [],
+        targetFiles: ["src/coach/aiCoach.ts"],
+        status: "pending",
+      };
+      s.agents["worker-2"] = {
+        id: "worker-2",
+        role: "test_engineer",
+        model: "llama3.1:8b",
+        taskSpec: "Fix lint errors in plans and Deload functions.",
+        dependsOn: [],
+        targetFiles: ["src/coach/plan.ts"],
+        status: "pending",
+      };
+      s.agents["worker-3"] = {
+        id: "worker-3",
+        role: "cleanup_agent",
+        model: "gemma3:1b",
+        taskSpec: "Audit dead code and run lint error verification.",
+        dependsOn: ["worker-1"],
+        targetFiles: ["src/ui/RepCounter.tsx"],
+        status: "pending",
+      };
+    }, swarmDir);
+  }
+
+  // Schedule agents and launch autonomous workers
+  await tickScheduler(cwd);
+
+  // Stream live Fable TUI dashboard
+  await handleWatch(args, cwd);
+}
+
+/**
  * Prints the CLI help message.
  */
 function printHelp(): void {
@@ -565,6 +640,9 @@ USAGE:
 SUBCOMMANDS:
   mcp                           Start Model Context Protocol stdio server
   init [mission] [options]      Initialize .swarm/, .gitignore, and AGENTS.md
+  run [mission] [options]       Launch autonomous swarm execution with live Fable TUI
+  start [mission] [options]     Alias for run
+  worker <agentId>              Run an agent worker autonomously inside its worktree
   status [options]              Display swarm status (Fable dashboard, table, or JSON)
   watch [options]               Live auto-refreshing swarm status dashboard
   dashboard [options]           Alias for watch (live interactive TUI dashboard)
@@ -638,6 +716,15 @@ async function main(): Promise<void> {
 
     case "complete":
       await handleComplete(subArgs);
+      break;
+
+    case "run":
+    case "start":
+      await handleRun(subArgs);
+      break;
+
+    case "worker":
+      await handleWorker(subArgs);
       break;
 
     default:

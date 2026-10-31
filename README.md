@@ -125,13 +125,16 @@ If running from source:
 
 ## MCP Tools Reference
 
-When connected via MCP, Swarm Engine exposes 6 core tools:
+When connected via MCP, Swarm Engine exposes 9 core tools:
 
 | Tool Name | Description | Key Arguments | Return Value |
 |:---|:---|:---|:---|
-| `spawn_swarm` | Initializes or reconfigures a multi-agent swarm mission, sets concurrency limit, and queues 1..N initial agents forming a DAG. | `mission` (string)<br>`maxConcurrency` (number, opt)<br>`workerCommand` (string, opt)<br>`agents` (array of agent configs) | `{ success, mission, maxConcurrency, totalAgents, runningAgents, pendingAgents, activeLocks }` |
-| `add_dynamic_agent` | Adds an on-the-fly specialist agent mid-flight during swarm execution, automatically validating dependencies and scheduling. | `role` (string)<br>`taskSpec` (string)<br>`systemPrompt` (string, opt)<br>`dependsOn` (string[], opt)<br>`targetFiles` (string[], opt) | `{ success, agent, scheduled, reason }` |
+| `spawn_swarm` | Initializes or reconfigures a multi-agent swarm mission, sets concurrency limit, and queues 1..N initial agents forming a DAG. Supports model targeting (`qwen3-coder:30b`, `llama3.1:8b`, `claude opus`). | `mission` (string)<br>`maxConcurrency` (number, opt)<br>`workerCommand` (string, opt)<br>`agents` (array of agent configs) | `{ success, mission, maxConcurrency, totalAgents, runningAgents, pendingAgents, activeLocks }` |
+| `add_dynamic_agent` | Adds an on-the-fly specialist agent mid-flight during swarm execution, automatically validating dependencies and scheduling. | `role` (string)<br>`model` (string, opt)<br>`taskSpec` (string)<br>`systemPrompt` (string, opt)<br>`dependsOn` (string[], opt)<br>`targetFiles` (string[], opt) | `{ success, agent, scheduled, reason }` |
 | `pull_agent_task` | Claims or inspects the next ready task (or a specific agent ID), returning the worktree path, task spec, system prompt, and blackboard memory. | `agentId` (string, opt) | `{ success, agentId, role, status, worktreePath, branchName, taskSpec, targetFiles, blackboard }` |
+| `record_agent_action` | Records a live tool action (`Edit`, `Read`, `Bash`, `Update`) with diff lines or test outputs to stream to the Fable TUI dashboard. | `agentId` (string)<br>`actionType` ("edit"\|"read"\|"bash"\|"update")<br>`target` (string)<br>`detail` (string, opt)<br>`diffs` (array, opt) | `{ success, agentId, actionType, target }` |
+| `update_agent_progress` | Updates real-time agent telemetry: active thought, poetic verb (*Whispering*, *Pruning*, *Simmering*), tokens, and token throughput (tok/s). | `agentId` (string)<br>`thought` (string, opt)<br>`verb` (string, opt)<br>`tokens` (number, opt)<br>`tokPerSec` (number, opt) | `{ success, agentId }` |
+| `run_agent_task` | Launches autonomous worker execution inside an agent's worktree. | `agentId` (string) | `{ success, started, agentId }` |
 | `write_blackboard` | Saves or updates a shared memory key (schema, API contract, or flag) visible to all swarm agents. | `key` (string)<br>`value` (primitive, object, or array) | `{ success, key, value, allKeys }` |
 | `complete_agent_task` | Commits worktree changes, cleanly merges to main (`--no-ff`), deletes worktree and branch, releases file locks, marks agent completed, and unblocks downstream dependents. | `agentId` (string)<br>`summary` (string) | `{ success, agentId, status, summary, unblockedAgents }` |
 | `get_swarm_status` | Returns a complete snapshot of mission, concurrency, agent statuses, active file locks, and blackboard keys. | `detail` (boolean, opt, default: false) | `{ initialized, mission, maxConcurrency, summary, agents, lockedFiles, blackboard }` |
@@ -284,18 +287,19 @@ project-root/
 
 ## Testing & Verification
 
-Swarm Engine contains a comprehensive 5-tier opaque-box test suite with 51 automated tests passing at 100% using the native Node.js test runner (`node:test` + `node:assert`):
+Swarm Engine contains a comprehensive 6-tier opaque-box test suite with 56 automated tests passing at 100% using the native Node.js test runner (`node:test` + `node:assert`):
 
 ```bash
-# Run all 51 tests across all 5 tiers
+# Run all 56 tests across all 6 tiers
 npm test
 ```
 
-- **Tier 1 (Feature Coverage)**: Isolated testing of all 6 MCP tools, 5 CLI commands, and stdio handshake framing (Safeguard 1).
+- **Tier 1 (Feature Coverage)**: Isolated testing of all 9 MCP tools, CLI commands, and stdio handshake framing (Safeguard 1).
 - **Tier 2 (Boundary & Corner Cases)**: Stale lock eviction (>30s and dead PID), concurrent state writes, zero-diff merges (Safeguard 2), clean git history verification (Safeguard 2), non-git fallbacks (Safeguard 3), unborn HEAD repos (Safeguard 3), and Windows path normalization (Safeguard 4).
 - **Tier 3 (Cross-Feature Interactions)**: Diamond DAG dependency execution ($A \to [B, C] \to D$), file lock contention and queueing, concurrency slot throttling, mid-flight dynamic agent injection, and blackboard context propagation.
 - **Tier 4 (Real-World Workflows)**: Multi-agent sequential refactoring across shared modules, parallel feature development with blackboard contract negotiation, and swarm reset resilience.
 - **Tier 5 (Adversarial Coverage Hardening)**: Cyclic dependency injection, malformed JSON-RPC frames, killed worker processes, corrupted lock metadata recovery, branch collisions (`git worktree add -B`), dirty uncommitted worktrees, merge conflict safety halts, and nested directory preservation.
+- **Tier 6 (Fable Multi-Agent Execution & Live Actions)**: Real-time action recording (`Edit`, `Read`, `Bash`), code diff streams with line numbers, token telemetry and throughput (`tok/s`), and autonomous worker loop execution.
 
 ---
 

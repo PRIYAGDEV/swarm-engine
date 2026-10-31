@@ -2,6 +2,7 @@ import { spawn, execFile, execSync } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   AgentNode,
   SwarmState,
@@ -10,6 +11,9 @@ import {
   readState,
   updateState,
 } from "./state.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const execFileAsync = promisify(execFile);
 
@@ -363,7 +367,7 @@ export async function tickScheduler(cwd: string = process.cwd()): Promise<void> 
         agent.worktreePath = worktreePath;
         agent.branchName = `swarm/${agent.id}`;
 
-        // 5. Spawn background worker if workerCommand or process.env.SWARM_WORKER_CMD is set
+        // 5. Spawn background worker if workerCommand or SWARM_AUTO_RUN is enabled
         const workerCmd = state.workerCommand || process.env.SWARM_WORKER_CMD;
         if (workerCmd) {
           try {
@@ -378,6 +382,22 @@ export async function tickScheduler(cwd: string = process.cwd()): Promise<void> 
           } catch (spawnErr) {
             console.error(
               `[swarm-engine] Error spawning worker for agent ${agent.id}:`,
+              spawnErr
+            );
+          }
+        } else if (process.env.SWARM_AUTO_RUN === "1" || process.env.SWARM_AUTO_RUN === "true") {
+          try {
+            const cliPath = path.resolve(__dirname, "index.js");
+            const child = spawn(process.execPath, [cliPath, "worker", agent.id], {
+              cwd: worktreePath,
+              detached: true,
+              stdio: "ignore",
+            });
+            child.unref();
+            agent.pid = child.pid;
+          } catch (spawnErr) {
+            console.error(
+              `[swarm-engine] Error spawning autonomous runner for agent ${agent.id}:`,
               spawnErr
             );
           }

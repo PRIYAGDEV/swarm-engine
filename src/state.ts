@@ -8,11 +8,32 @@ import crypto from "node:crypto";
 export type AgentStatus = "pending" | "running" | "completed" | "failed";
 
 /**
+ * Single line diff item (green insertion or red deletion).
+ */
+export interface AgentDiffItem {
+  type: "add" | "del";
+  line: string;
+  lineNo?: number;
+}
+
+/**
+ * Concrete tool action executed by an agent in its worktree (Edit, Read, Bash, etc.).
+ */
+export interface AgentAction {
+  type: "edit" | "read" | "bash" | "update" | "delete" | "status";
+  target: string;
+  detail?: string;
+  diffs?: AgentDiffItem[];
+  timestamp: number;
+}
+
+/**
  * Represents a single agent node in the dependency execution DAG.
  */
 export interface AgentNode {
   id: string;
   role: string;
+  model?: string;
   systemPrompt?: string;
   taskSpec: string;
   dependsOn: string[];
@@ -22,6 +43,13 @@ export interface AgentNode {
   branchName?: string;
   pid?: number;
   outputSummary?: string;
+  actions?: AgentAction[];
+  tokens?: number;
+  tokPerSec?: number;
+  thought?: string;
+  verb?: string;
+  startedAt?: number;
+  completedAt?: number;
 }
 
 /**
@@ -296,4 +324,53 @@ export async function updateState<T>(
     await releaseLock(dir);
   }
 }
+
+/**
+ * Records a real-time tool action (Edit, Read, Bash, Update) executed by an agent.
+ */
+export async function recordAgentAction(
+  agentId: string,
+  action: Omit<AgentAction, "timestamp"> & { timestamp?: number },
+  swarmDir?: string
+): Promise<void> {
+  const dir = swarmDir || getSwarmDir();
+  await updateState((state) => {
+    const agent = state.agents[agentId];
+    if (!agent) return;
+    if (!agent.actions) agent.actions = [];
+    agent.actions.push({
+      ...action,
+      timestamp: action.timestamp || Date.now(),
+    });
+    // Retain the last 15 actions to keep state concise
+    if (agent.actions.length > 15) {
+      agent.actions = agent.actions.slice(-15);
+    }
+  }, dir);
+}
+
+/**
+ * Updates an agent's real-time telemetry (tokens, speed, verb, thought).
+ */
+export async function updateAgentProgress(
+  agentId: string,
+  progress: {
+    thought?: string;
+    verb?: string;
+    tokens?: number;
+    tokPerSec?: number;
+  },
+  swarmDir?: string
+): Promise<void> {
+  const dir = swarmDir || getSwarmDir();
+  await updateState((state) => {
+    const agent = state.agents[agentId];
+    if (!agent) return;
+    if (progress.thought !== undefined) agent.thought = progress.thought;
+    if (progress.verb !== undefined) agent.verb = progress.verb;
+    if (progress.tokens !== undefined) agent.tokens = progress.tokens;
+    if (progress.tokPerSec !== undefined) agent.tokPerSec = progress.tokPerSec;
+  }, dir);
+}
+
 

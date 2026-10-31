@@ -234,3 +234,43 @@ export async function updateState(mutator, swarmDir) {
         await releaseLock(dir);
     }
 }
+/**
+ * Records a real-time tool action (Edit, Read, Bash, Update) executed by an agent.
+ */
+export async function recordAgentAction(agentId, action, swarmDir) {
+    const dir = swarmDir || getSwarmDir();
+    await updateState((state) => {
+        const agent = state.agents[agentId];
+        if (!agent)
+            return;
+        if (!agent.actions)
+            agent.actions = [];
+        agent.actions.push({
+            ...action,
+            timestamp: action.timestamp || Date.now(),
+        });
+        // Retain the last 15 actions to keep state concise
+        if (agent.actions.length > 15) {
+            agent.actions = agent.actions.slice(-15);
+        }
+    }, dir);
+}
+/**
+ * Updates an agent's real-time telemetry (tokens, speed, verb, thought).
+ */
+export async function updateAgentProgress(agentId, progress, swarmDir) {
+    const dir = swarmDir || getSwarmDir();
+    await updateState((state) => {
+        const agent = state.agents[agentId];
+        if (!agent)
+            return;
+        if (progress.thought !== undefined)
+            agent.thought = progress.thought;
+        if (progress.verb !== undefined)
+            agent.verb = progress.verb;
+        if (progress.tokens !== undefined)
+            agent.tokens = progress.tokens;
+        if (progress.tokPerSec !== undefined)
+            agent.tokPerSec = progress.tokPerSec;
+    }, dir);
+}
