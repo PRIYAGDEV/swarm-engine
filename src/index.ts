@@ -27,6 +27,7 @@ import { pruneWorktrees, mergeAndComplete, tickScheduler } from "./spawner.js";
 import { startMcpServer } from "./mcp.js";
 import { renderDashboard } from "./tui.js";
 import { runAgentWorker } from "./runner.js";
+import { detectActiveModels, detectActiveModelsSync } from "./detector.js";
 
 /**
  * Helper to retrieve the string value of a command-line flag.
@@ -324,9 +325,10 @@ async function handleInit(args: string[], cwd: string = process.cwd()): Promise<
     if (!isNaN(parsed) && parsed > 0) concurrency = parsed;
   }
 
-  // Parse workerCommand
+  // Parse workerCommand and models
   const workerCommand = getFlagValue(args, "--worker");
-  const leaderModel = getFlagValue(args, "--leader-model") || getFlagValue(args, "-lm") || process.env.SWARM_LEADER_MODEL || process.env.LEADER_MODEL || undefined;
+  const detected = await detectActiveModels(cwd);
+  const leaderModel = getFlagValue(args, "--leader-model") || getFlagValue(args, "-lm") || detected.leaderModel || undefined;
 
   // Create .swarm and .swarm/worktrees
   await fs.mkdir(path.join(swarmDir, "worktrees"), { recursive: true });
@@ -588,8 +590,9 @@ async function handleRun(args: string[], cwd: string = process.cwd()): Promise<v
   if (!state || force) {
     const mission = args.find((a) => !a.startsWith("-")) || "Autonomous Multi-Agent Mission";
     const concurrency = parseInt(getFlagValue(args, "--concurrency") || "4", 10);
-    const leaderModel = getFlagValue(args, "--leader-model") || getFlagValue(args, "-lm") || process.env.SWARM_LEADER_MODEL || process.env.LEADER_MODEL || undefined;
-    const userModel = getFlagValue(args, "--model") || getFlagValue(args, "-m") || process.env.SWARM_MODEL || process.env.MODEL || undefined;
+    const detected = await detectActiveModels(cwd);
+    const leaderModel = getFlagValue(args, "--leader-model") || getFlagValue(args, "-lm") || detected.leaderModel || undefined;
+    const userModel = getFlagValue(args, "--model") || getFlagValue(args, "-m") || detected.workerModel || undefined;
 
     await initState(mission, concurrency, undefined, swarmDir, leaderModel);
     await updateState((s) => {

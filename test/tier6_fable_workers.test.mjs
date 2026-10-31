@@ -177,4 +177,20 @@ test("Tier 6 - Fable Multi-Agent Execution & Live Actions", async (t) => {
     state = await readState(swarmDir);
     assert.equal(state.agents["worker-auto"].status, "completed");
   });
+
+  await t.test("T6-ACT-05: detectActiveModels discovers models automatically from workspace .env", async () => {
+    const { detectActiveModelsSync, detectActiveModels } = await import("../dist/detector.js");
+    await fs.writeFile(
+      path.join(ws.dir, ".env"),
+      "ANTHROPIC_MODEL=claude-3-7-sonnet\nOPENAI_MODEL=gpt-4o\n",
+      "utf8"
+    );
+
+    const detectedSync = detectActiveModelsSync(ws.dir);
+    assert.ok(detectedSync.leaderModel || detectedSync.workerModel);
+    assert.equal(detectedSync.leaderModel, "claude-3-7-sonnet");
+
+    const detectedAsync = await detectActiveModels(ws.dir);
+    assert.equal(detectedAsync.leaderModel, "claude-3-7-sonnet");
+  });
 });

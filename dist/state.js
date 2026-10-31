@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { detectActiveModelsSync } from "./detector.js";
 /**
  * Strips leading './' and converts '\' to '/' to ensure file paths
  * normalize reliably across Windows and POSIX systems (Safeguard 4).
@@ -151,9 +152,10 @@ export async function acquireLock(swarmDir, timeoutMs = 10000) {
 export async function initState(mission, maxConcurrency = 4, workerCommand, swarmDir, leaderModel) {
     const dir = swarmDir || getSwarmDir();
     await fs.mkdir(dir, { recursive: true });
+    const detected = detectActiveModelsSync(path.dirname(dir));
     const initialState = {
         mission,
-        leaderModel: leaderModel || process.env.SWARM_LEADER_MODEL || undefined,
+        leaderModel: leaderModel || detected.leaderModel || undefined,
         maxConcurrency,
         workerCommand,
         agents: {},

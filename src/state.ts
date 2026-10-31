@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { detectActiveModelsSync } from "./detector.js";
 
 /**
  * Status of an individual agent node in the swarm.
@@ -235,9 +236,10 @@ export async function initState(
   const dir = swarmDir || getSwarmDir();
   await fs.mkdir(dir, { recursive: true });
 
+  const detected = detectActiveModelsSync(path.dirname(dir));
   const initialState: SwarmState = {
     mission,
-    leaderModel: leaderModel || process.env.SWARM_LEADER_MODEL || undefined,
+    leaderModel: leaderModel || detected.leaderModel || undefined,
     maxConcurrency,
     workerCommand,
     agents: {},

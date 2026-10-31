@@ -15,6 +15,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { detectActiveModelsSync } from "./detector.js";
 // ANSI escape codes for rich terminal styling
 export const c = {
     reset: "\x1b[0m",
@@ -267,9 +268,11 @@ export function renderAgentCard(agent, width, telemetry, index, sessionStartTime
     // Header border with embedded title & model:
     const starSymbol = `${c.brightYellow}*${c.reset}`;
     const agentTitle = `${c.bold}${c.brightWhite}${agent.id}${c.reset}`;
-    // Model display: prioritize displaying user-configured model prominently
-    const displayLabel = agent.model
-        ? (agent.role && agent.role !== "worker" ? `${agent.role} · ${agent.model}` : agent.model)
+    const detected = detectActiveModelsSync();
+    const effectiveModel = agent.model || detected.workerModel;
+    // Model display: prioritize displaying user-configured/detected model prominently
+    const displayLabel = effectiveModel
+        ? (agent.role && agent.role !== "worker" ? `${agent.role} · ${effectiveModel}` : effectiveModel)
         : (agent.role || "worker");
     const roleText = `${c.gray}${truncate(displayLabel, 26)}${c.reset}`;
     const leftHeaderVisual = `* ${agent.id} `;
@@ -429,9 +432,10 @@ export async function renderDashboard(state, cwd = process.cwd(), startTime = Da
     const lines = [];
     // Short cwd for title bar (e.g., "~/Swarm-engine")
     const shortCwd = `~/${path.basename(cwd)}`;
-    // Find models configured on agents
-    const workerModels = Array.from(new Set(agents.map((a) => a.model).filter(Boolean)));
-    const leaderModel = state.leaderModel || process.env.SWARM_LEADER_MODEL || process.env.LEADER_MODEL || undefined;
+    // Detect models automatically from environment/editor if not explicitly set
+    const detected = detectActiveModelsSync(cwd);
+    const leaderModel = state.leaderModel || detected.leaderModel || undefined;
+    const workerModels = Array.from(new Set(agents.map((a) => a.model || detected.workerModel).filter(Boolean)));
     const leaderDisplay = leaderModel
         ? `${c.brightWhite}${leaderModel}${c.reset} ${c.dim}· ${total} subagents${c.reset}`
         : `${c.dim}orchestrator · ${total} subagents${c.reset}`;

@@ -6,6 +6,7 @@ import { initState, readState, updateState, recordAgentAction, updateAgentProgre
 import { tickScheduler, mergeAndComplete, } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
 import { renderDashboard } from "./tui.js";
+import { detectActiveModels, detectActiveModelsSync } from "./detector.js";
 /**
  * Cycle detection helper using 3-color DFS traversal.
  * 0 = unvisited, 1 = visiting (current recursion stack), 2 = visited.
@@ -95,10 +96,13 @@ export function createMcpServer() {
             .describe("List of initial agent definitions"),
     }, async ({ mission, leaderModel, maxConcurrency, workerCommand, agents }) => {
         try {
+            const detected = await detectActiveModels();
+            const effectiveLeader = leaderModel || detected.leaderModel || undefined;
+            const defaultWorkerModel = detected.workerModel || undefined;
             const agentSpecs = (agents || []).map((a) => ({
                 id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
                 role: a.role,
-                model: a.model || process.env.SWARM_MODEL || undefined,
+                model: a.model || defaultWorkerModel,
                 systemPrompt: a.systemPrompt,
                 taskSpec: a.taskSpec,
                 dependsOn: a.dependsOn || [],
@@ -123,7 +127,7 @@ export function createMcpServer() {
                     ],
                 };
             }
-            await initState(mission, maxConcurrency, workerCommand, undefined, leaderModel);
+            await initState(mission, maxConcurrency, workerCommand, undefined, effectiveLeader);
             await updateState((state) => {
                 for (const spec of agentSpecs) {
                     state.agents[spec.id] = {
@@ -234,7 +238,7 @@ export function createMcpServer() {
             const newAgent = {
                 id: agentId,
                 role,
-                model: model || process.env.SWARM_MODEL || undefined,
+                model: model || detectActiveModelsSync().workerModel || undefined,
                 systemPrompt,
                 taskSpec,
                 dependsOn: dependsOn || [],
