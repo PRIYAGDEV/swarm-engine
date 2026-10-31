@@ -255,8 +255,31 @@ npm run verify
 
 ---
 
+## 👨‍💻 Author & GitHub Activity
+
+<div align="center">
+
+Crafted with ⚡ by **[PRIYAGDEV](https://github.com/PRIYAGDEV)**
+
+<br>
+
+<p align="center">
+  <img src="https://github-stats-extended.vercel.app/api?username=PRIYAGDEV&show_icons=true&theme=tokyonight&hide_border=true" alt="PRIYAGDEV's GitHub Stats" />
+  <img src="https://streak-stats.demolab.com?user=PRIYAGDEV&theme=tokyonight&hide_border=true" alt="PRIYAGDEV's GitHub Streak" />
+</p>
+<p align="center">
+  <img src="https://github-stats-extended.vercel.app/api/top-langs/?username=PRIYAGDEV&layout=compact&theme=tokyonight&hide_border=true" alt="Top Languages" />
+</p>
+
+[![GitHub followers](https://img.shields.io/github/followers/PRIYAGDEV?style=social)](https://github.com/PRIYAGDEV)
+[![GitHub stars](https://img.shields.io/github/stars/PRIYAGDEV?style=social)](https://github.com/PRIYAGDEV)
+
+</div>
+
+---
+
 ## 📄 License
 
 Open-source under the **[MIT License](LICENSE)**.
 
-Crafted with ⚡ by **[PRIYAGDEV](https://github.com/PRIYAGDEV)**. Contributions, suggestions, and feature requests are always welcome!
+Contributions, suggestions, and feature requests are always welcome!
