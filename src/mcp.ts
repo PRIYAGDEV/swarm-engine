@@ -17,6 +17,7 @@ import {
   mergeAndComplete,
 } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
+import { renderDashboard } from "./tui.js";
 
 /**
  * Cycle detection helper using 3-color DFS traversal.
@@ -116,7 +117,7 @@ export function createMcpServer(): McpServer {
         const agentSpecs = (agents || []).map((a) => ({
           id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
           role: a.role,
-          model: a.model,
+          model: a.model || process.env.SWARM_DEFAULT_MODEL || "claude-3-5-sonnet",
           systemPrompt: a.systemPrompt,
           taskSpec: a.taskSpec,
           dependsOn: a.dependsOn || [],
@@ -173,6 +174,8 @@ export function createMcpServer(): McpServer {
           ? finalState.lockedFiles
           : Object.keys(finalState.lockedFiles || {});
 
+        const dashboardStr = await renderDashboard(finalState, process.cwd());
+
         return {
           content: [
             {
@@ -186,6 +189,10 @@ export function createMcpServer(): McpServer {
                 pendingAgents,
                 activeLocks,
               }),
+            },
+            {
+              type: "text",
+              text: dashboardStr,
             },
           ],
         };
@@ -265,7 +272,7 @@ export function createMcpServer(): McpServer {
         const newAgent: AgentNode = {
           id: agentId,
           role,
-          model,
+          model: model || process.env.SWARM_DEFAULT_MODEL || "claude-3-5-sonnet",
           systemPrompt,
           taskSpec,
           dependsOn: dependsOn || [],
@@ -545,13 +552,18 @@ export function createMcpServer(): McpServer {
           : agentsList.map((a) => ({
               id: a.id,
               role: a.role,
+              model: a.model || "claude-3-5-sonnet",
               status: a.status,
               dependsOn: a.dependsOn,
               targetFiles: a.targetFiles,
+              thought: a.thought,
+              actions: a.actions?.slice(-3),
               worktreePath: a.worktreePath,
               branchName: a.branchName,
               outputSummary: a.outputSummary,
             }));
+
+        const dashboardStr = await renderDashboard(state, process.cwd());
 
         return {
           content: [
@@ -566,7 +578,12 @@ export function createMcpServer(): McpServer {
                 agents: formattedAgents,
                 lockedFiles: lockedFilesList,
                 blackboard: state.blackboard || {},
+                dashboard: dashboardStr,
               }),
+            },
+            {
+              type: "text",
+              text: dashboardStr,
             },
           ],
         };

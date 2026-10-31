@@ -268,10 +268,11 @@ export function renderAgentCard(agent, width, telemetry, index, sessionStartTime
     // ╭ * opus-1 ──────────────────── claude opus ╮  or  qwen3-coder:30b
     const starSymbol = `${c.brightYellow}*${c.reset}`;
     const agentTitle = `${c.bold}${c.brightWhite}${agent.id}${c.reset}`;
-    const modelOrRole = agent.model || agent.role || "worker";
-    const roleText = `${c.gray}${truncate(modelOrRole, 18)}${c.reset}`;
+    const modelText = agent.model ? ` · ${agent.model}` : "";
+    const roleAndModel = `${agent.role || "worker"}${modelText}`;
+    const roleText = `${c.gray}${truncate(roleAndModel, 26)}${c.reset}`;
     const leftHeaderVisual = `* ${agent.id} `;
-    const rightHeaderVisual = ` ${truncate(modelOrRole, 18)} `;
+    const rightHeaderVisual = ` ${truncate(roleAndModel, 26)} `;
     const neededDashes = Math.max(2, width - 2 - leftHeaderVisual.length - rightHeaderVisual.length);
     const topBorder = `${c.gray}╭ ${starSymbol} ${agentTitle} ${c.gray}${"─".repeat(neededDashes)} ${roleText} ${c.gray}╮${c.reset}`;
     const bottomBorder = `${c.gray}╰${"─".repeat(width - 2)}╯${c.reset}`;
@@ -293,10 +294,14 @@ export function renderAgentCard(agent, width, telemetry, index, sessionStartTime
                     for (const d of latestAction.diffs.slice(0, 2)) {
                         const prefix = d.lineNo ? `${d.lineNo} ` : "";
                         if (d.type === "del") {
-                            rows.push(`${c.brightRed}  ${prefix}- ${truncate(d.line, contentWidth - 6)}${c.reset}`);
+                            const lineText = ` ${prefix}- ${truncate(d.line, contentWidth - 6)}`;
+                            const padded = lineText.padEnd(contentWidth);
+                            rows.push(`${c.bgRed}${c.brightWhite}${padded}${c.reset}`);
                         }
                         else {
-                            rows.push(`${c.brightGreen}  ${prefix}+ ${truncate(d.line, contentWidth - 6)}${c.reset}`);
+                            const lineText = ` ${prefix}+ ${truncate(d.line, contentWidth - 6)}`;
+                            const padded = lineText.padEnd(contentWidth);
+                            rows.push(`${c.bgGreen}${c.brightWhite}${padded}${c.reset}`);
                         }
                     }
                 }
@@ -320,12 +325,17 @@ export function renderAgentCard(agent, width, telemetry, index, sessionStartTime
         else if (telemetry.recentAction) {
             rows.push(`${c.brightGreen}●${c.reset} ${c.white}${truncate(telemetry.recentAction, contentWidth - 4)}${c.reset}`);
             if (telemetry.diffSnippets.length > 0) {
-                for (const snip of telemetry.diffSnippets.slice(0, 1)) {
+                for (const snip of telemetry.diffSnippets.slice(0, 2)) {
+                    const prefix = snip.lineNo ? `${snip.lineNo} ` : "";
                     if (snip.type === "add") {
-                        rows.push(`${c.brightGreen}  + ${truncate(snip.line, contentWidth - 5)}${c.reset}`);
+                        const lineText = ` ${prefix}+ ${truncate(snip.line, contentWidth - 6)}`;
+                        const padded = lineText.padEnd(contentWidth);
+                        rows.push(`${c.bgGreen}${c.brightWhite}${padded}${c.reset}`);
                     }
                     else {
-                        rows.push(`${c.brightRed}  - ${truncate(snip.line, contentWidth - 5)}${c.reset}`);
+                        const lineText = ` ${prefix}- ${truncate(snip.line, contentWidth - 6)}`;
+                        const padded = lineText.padEnd(contentWidth);
+                        rows.push(`${c.bgRed}${c.brightWhite}${padded}${c.reset}`);
                     }
                 }
             }
