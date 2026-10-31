@@ -23,7 +23,9 @@
     "build": "tsc",
     "prepare": "npm run build",
     "start": "node dist/index.js",
-    "test": "node --test test/*.test.mjs"
+    "sync:skills": "node scripts/sync_skills.mjs",
+    "test": "node --test test/*.test.mjs",
+    "verify": "node test/verify_packaging_and_scaling.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

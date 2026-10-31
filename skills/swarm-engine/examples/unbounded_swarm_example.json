@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Unbounded 15-Agent Swarm Configuration Example",
+  "description": "Demonstrates an unbounded, zero-queuing, 15-agent parallel swarm configuration for Swarm Engine.",
+  "mission": "Architect and deploy high-throughput real-time collaborative workspace microservice",
+  "maxConcurrency": 0,
+  "parallel": true,
+  "strictDependencies": false,
+  "agents": [
+    {
+      "id": "agent-arch",
+      "role": "system_architect",
+      "taskSpec": "Define shared message protocols, WebSocket payload interfaces, and blackboard contracts.",
+      "targetFiles": ["src/types/protocol.ts", "src/types/events.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-db-schema",
+      "role": "database_schema_engineer",
+      "taskSpec": "Design PostgreSQL schemas for workspaces, document revisions, and user access records.",
+      "targetFiles": ["src/db/schema.ts", "migrations/001_workspaces.sql"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-db-repo",
+      "role": "database_repository_dev",
+      "taskSpec": "Implement transactional repository queries for revision history and workspace membership.",
+      "targetFiles": ["src/db/repositories/workspaceRepo.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-ws-server",
+      "role": "websocket_server_engineer",
+      "taskSpec": "Build WebSocket server handling client connection lifecycles, heartbeats, and room subscriptions.",
+      "targetFiles": ["src/ws/server.ts", "src/ws/connectionPool.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-crdt-sync",
+      "role": "crdt_sync_engine",
+      "taskSpec": "Implement operational transformation and CRDT state synchronizer for real-time document conflict resolution.",
+      "targetFiles": ["src/sync/crdtEngine.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-auth-guard",
+      "role": "auth_security_guard",
+      "taskSpec": "Implement JWT and API key authentication middleware for WebSocket handshakes and HTTP routes.",
+      "targetFiles": ["src/auth/tokenValidator.ts", "src/auth/wsAuth.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-redis-pubsub",
+      "role": "redis_pubsub_coordinator",
+      "taskSpec": "Configure Redis pub/sub multi-node broadcasting for cross-server WebSocket message dissemination.",
+      "targetFiles": ["src/cache/redisBroadcaster.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-rest-api",
+      "role": "rest_api_developer",
+      "taskSpec": "Build RESTful endpoints for workspace management, invitations, and metadata retrieval.",
+      "targetFiles": ["src/api/workspaceRoutes.ts", "src/api/workspaceController.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-client-sdk",
+      "role": "client_sdk_builder",
+      "taskSpec": "Generate isomorphic TypeScript client library with automatic reconnection and event emitters.",
+      "targetFiles": ["src/client/workspaceClient.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-unit-tests",
+      "role": "unit_test_author",
+      "taskSpec": "Author comprehensive unit tests covering CRDT conflict resolution and message serialization.",
+      "targetFiles": ["test/unit/crdt.spec.ts", "test/unit/protocol.spec.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-integration-tests",
+      "role": "integration_tester",
+      "taskSpec": "Author integration tests spinning up mock WebSocket clients verifying multi-user synchronization.",
+      "targetFiles": ["test/integration/wsSync.spec.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-security-auditor",
+      "role": "security_auditor",
+      "taskSpec": "Audit WebSocket frame boundaries, injection vulnerabilities, and denial-of-service protections.",
+      "targetFiles": ["audit/securityReview.md", "src/security/rateLimiter.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-perf-benchmark",
+      "role": "performance_benchmark_eng",
+      "taskSpec": "Develop load testing scripts simulating 10,000 concurrent WebSocket connections and measure latency.",
+      "targetFiles": ["bench/loadTest.js", "bench/latencyMetrics.ts"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-devops-docker",
+      "role": "devops_infrastructure_eng",
+      "taskSpec": "Create optimized multi-stage Dockerfile and docker-compose orchestration with Redis and Postgres.",
+      "targetFiles": ["Dockerfile", "docker-compose.yml"],
+      "dependsOn": []
+    },
+    {
+      "id": "agent-docs-author",
+      "role": "technical_documentation_writer",
+      "taskSpec": "Write developer architecture guide, protocol specification, and client integration manual.",
+      "targetFiles": ["docs/ARCHITECTURE.md", "docs/CLIENT_GUIDE.md", "README.md"],
+      "dependsOn": []
+    }
+  ]
+}

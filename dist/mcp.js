@@ -58,7 +58,7 @@ export function createMcpServer() {
         version: "1.0.0",
     });
     // Tool 1: spawn_swarm
-    server.tool("spawn_swarm", "Initialize and launch a multi-agent swarm where all agents run concurrently in parallel across isolated git worktrees with zero queuing. Concurrency is infinite by default (maxConcurrency: 0).", {
+    server.tool("spawn_swarm", "Initialize and launch an unbounded multi-agent swarm with as many specialized subagents as required by the mission (e.g. 5, 10, 15, 20+ parallel workers) with zero queuing and infinite concurrency (maxConcurrency: 0 by default). Decompose complex problems into specialized roles with non-overlapping targetFiles to maximize parallel throughput across isolated git worktrees.", {
         mission: z.string().describe("Overall mission statement or goal for the swarm"),
         leaderModel: z
             .string()
@@ -70,7 +70,7 @@ export function createMcpServer() {
             .nonnegative()
             .optional()
             .default(0)
-            .describe("Maximum number of agents running concurrently (0 = unlimited / infinite, default: 0)"),
+            .describe("Maximum concurrent running agents (0 = unlimited / infinite concurrency, default: 0). Do not artificially limit concurrency unless operating under extreme host resource constraints."),
         parallel: z
             .boolean()
             .optional()
@@ -88,10 +88,10 @@ export function createMcpServer() {
         agents: z
             .array(z.object({
             id: z.string().optional().describe("Optional unique agent ID"),
-            role: z.string().describe("Agent role (e.g., 'backend_developer')"),
+            role: z.string().describe("Agent role (e.g., 'architect', 'backend', 'frontend', 'database', 'auth', 'testing', 'perf', 'docs', 'security'). Specify narrow, specialized responsibilities with non-overlapping targetFiles."),
             model: z.string().optional().describe("User-configured model identifier or name (optional, auto-detected)"),
             systemPrompt: z.string().optional().describe("Custom instructions and system prompt for the agent"),
-            taskSpec: z.string().describe("Detailed task requirements and specifications for this agent"),
+            taskSpec: z.string().describe("Detailed task requirements and prompt decomposition for this agent. Clearly define deliverables and file boundaries (non-overlapping targetFiles) to maximize parallel velocity."),
             dependsOn: z
                 .array(z.string())
                 .optional()
@@ -101,11 +101,11 @@ export function createMcpServer() {
                 .array(z.string())
                 .optional()
                 .default([])
-                .describe("Files this agent plans to create or modify (normalized for locking)"),
+                .describe("Files this agent plans to create or modify (normalized for locking). Ensure non-overlapping targetFiles across concurrent agents to avoid file lock contention."),
         }))
             .optional()
             .default([])
-            .describe("List of initial agent definitions"),
+            .describe("List of initial agent definitions. Assistant models are explicitly encouraged to decompose complex missions into 5 to 20+ specialized subagents (e.g., architect, backend, frontend, database, auth, testing, perf, docs, security) running concurrently in parallel with zero queuing across isolated git worktrees."),
     }, async ({ mission, leaderModel, maxConcurrency, parallel, strictDependencies, workerCommand, agents }) => {
         try {
             const detected = await detectActiveModels();
@@ -193,22 +193,22 @@ export function createMcpServer() {
         }
     });
     // Tool 2: add_dynamic_agent
-    server.tool("add_dynamic_agent", "Add an on-the-fly specialist agent mid-execution to the running swarm. Automatically schedules or queues based on dependency resolution and file lock availability.", {
+    server.tool("add_dynamic_agent", "Dynamically inject an on-the-fly specialist subagent mid-execution into the running swarm. Can be called repeatedly to scale the swarm to 20+ agents as new subtasks, bugs, or refactorings are discovered. Injects directly into an isolated worktree with zero queuing.", {
         id: z.string().optional().describe("Optional unique agent ID"),
-        role: z.string().describe("Role or specialization of the dynamic agent"),
+        role: z.string().describe("Role or specialization of the dynamic agent (e.g., 'database_migrator', 'security_auditor', 'performance_tuner'). Specify narrow, well-defined responsibilities with non-overlapping targetFiles."),
         model: z.string().optional().describe("User-configured model identifier or name (optional)"),
-        taskSpec: z.string().describe("Detailed task specification and guidelines for this agent"),
+        taskSpec: z.string().describe("Detailed task specification and prompt decomposition for this agent. Clearly specify scope and isolated file boundaries (non-overlapping targetFiles) to prevent file lock contention."),
         systemPrompt: z.string().optional().describe("Optional custom system prompt"),
         dependsOn: z
             .array(z.string())
             .optional()
             .default([])
-            .describe("Agent IDs that must complete before this agent can start"),
+            .describe("Optional collaboration context tags (agents run in parallel)"),
         targetFiles: z
             .array(z.string())
             .optional()
             .default([])
-            .describe("Files this agent will create or modify"),
+            .describe("Files this agent will create or modify. Ensure non-overlapping targetFiles to avoid file lock contention with other running subagents."),
     }, async ({ id, role, model, taskSpec, systemPrompt, dependsOn, targetFiles }) => {
         try {
             let state;

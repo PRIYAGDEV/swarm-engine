@@ -237,7 +237,7 @@ export async function createWorktree(agentOrId, stateOrCwd, customCwd) {
         catch {
             state = {
                 mission: "Dynamic Multi-Agent Swarm",
-                maxConcurrency: 4,
+                maxConcurrency: 0,
                 agents: {},
                 blackboard: {},
                 lockedFiles: {},

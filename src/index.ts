@@ -66,7 +66,8 @@ function formatStatusTable(state: SwarmState): string {
   lines.push("SWARM ENGINE STATUS");
   lines.push("================================================================================");
   lines.push(`Mission:     ${state.mission || "N/A"}`);
-  lines.push(`Concurrency: ${running} / ${state.maxConcurrency || 4} active (${total} total agents)`);
+  const concurrencyDisplay = state.maxConcurrency === 0 ? "∞ (unlimited)" : state.maxConcurrency || 4;
+  lines.push(`Concurrency: ${running} / ${concurrencyDisplay} active (${total} total agents)`);
   if (state.workerCommand) {
     lines.push(`Worker:      ${state.workerCommand}`);
   }
@@ -198,7 +199,7 @@ This repository is powered by **Swarm Engine**, a multi-agent orchestration fram
 
 1. **DAG Scheduling & Concurrency**:
    - Swarm Engine schedules tasks using a Directed Acyclic Graph (DAG) with dependency tracking (\`dependsOn\`).
-   - Tasks execute up to \`maxConcurrency\` (default: 4) parallel workers.
+   - Tasks execute up to \`maxConcurrency\` (default: 0 = infinite / unlimited concurrency) parallel workers.
    - Dependent tasks are automatically queued as \`pending\` and advance to \`running\` as prerequisites complete.
 
 2. **Git Worktree Isolation**:
@@ -508,14 +509,14 @@ async function handleReset(args: string[], cwd: string = process.cwd()): Promise
 
   // 3. Read existing mission/concurrency/blackboard if present
   let mission = "Default Swarm Mission";
-  let concurrency = 4;
+  let concurrency = 0;
   let workerCommand: string | undefined;
   let savedBlackboard: Record<string, unknown> = {};
 
   try {
     const existing = await readState(swarmDir);
     mission = existing.mission || mission;
-    concurrency = existing.maxConcurrency || concurrency;
+    concurrency = existing.maxConcurrency !== undefined ? existing.maxConcurrency : 0;
     workerCommand = existing.workerCommand;
     if (keepBlackboard && existing.blackboard) {
       savedBlackboard = existing.blackboard;
@@ -592,7 +593,7 @@ async function handleRun(args: string[], cwd: string = process.cwd()): Promise<v
     const concurrencyStr = getFlagValue(args, "--concurrency");
     const concurrency = concurrencyStr ? parseInt(concurrencyStr, 10) : 0; // 0 = unlimited/infinite
     const workerCountStr = getFlagValue(args, "--workers") || getFlagValue(args, "--agents") || getFlagValue(args, "-w");
-    const numWorkers = workerCountStr ? Math.max(1, Math.min(16, parseInt(workerCountStr, 10))) : 3;
+    const numWorkers = workerCountStr ? Math.max(1, parseInt(workerCountStr, 10)) : 3;
 
     const detected = await detectActiveModels(cwd);
     const leaderModel = getFlagValue(args, "--leader-model") || getFlagValue(args, "-lm") || detected.leaderModel || undefined;
@@ -670,8 +671,15 @@ SUBCOMMANDS:
   complete <agentId> [summary]  Complete an agent task and merge its worktree
 
 OPTIONS FOR init:
-  --concurrency <num>           Maximum concurrent running agents (default: 4)
+  --concurrency <num>           Maximum concurrent running agents (0 = unlimited / infinite, default: 0)
   --worker <command>            Command to execute background workers in worktrees
+  --force, -f                   Overwrite existing state if already initialized
+
+OPTIONS FOR run:
+  --concurrency <num>           Maximum concurrent running agents (0 = unlimited / infinite, default: 0)
+  --workers, -w <num>           Number of parallel workers to spawn (arbitrary count, default: 3)
+  --model, -m <model>           Model identifier for worker agents
+  --leader-model, -lm <model>   Model identifier for leader agent
   --force, -f                   Overwrite existing state if already initialized
 
 OPTIONS FOR status:
