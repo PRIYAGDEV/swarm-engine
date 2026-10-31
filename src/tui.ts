@@ -294,7 +294,10 @@ export function renderAgentCard(
   const starSymbol = `${c.brightYellow}*${c.reset}`;
   const agentTitle = `${c.bold}${c.brightWhite}${agent.id}${c.reset}`;
   const detected = detectActiveModelsSync();
-  const effectiveModel = agent.model || detected.workerModel;
+  const effectiveModel =
+    agent.model && agent.model !== "claude-3-7-sonnet"
+      ? agent.model
+      : detected.workerModel || agent.model;
   // Model display: prioritize displaying user-configured/detected model prominently
   const displayLabel = effectiveModel
     ? (agent.role && agent.role !== "worker" ? `${agent.role} · ${effectiveModel}` : effectiveModel)
@@ -465,9 +468,16 @@ export async function renderDashboard(
 
   // Detect models automatically from environment/editor if not explicitly set
   const detected = detectActiveModelsSync(cwd);
-  const leaderModel = state.leaderModel || detected.leaderModel || undefined;
+  const leaderModel =
+    state.leaderModel && state.leaderModel !== "claude-3-7-sonnet"
+      ? state.leaderModel
+      : detected.leaderModel || state.leaderModel || undefined;
   const workerModels = Array.from(
-    new Set(agents.map((a) => a.model || detected.workerModel).filter(Boolean))
+    new Set(
+      agents
+        .map((a) => (a.model && a.model !== "claude-3-7-sonnet" ? a.model : detected.workerModel || a.model))
+        .filter(Boolean)
+    )
   );
 
   const leaderDisplay = leaderModel

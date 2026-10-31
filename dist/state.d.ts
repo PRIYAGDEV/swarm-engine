@@ -52,6 +52,8 @@ export interface SwarmState {
     leaderModel?: string;
     maxConcurrency?: number;
     workerCommand?: string;
+    parallel?: boolean;
+    strictDependencies?: boolean;
     agents: Record<string, AgentNode>;
     blackboard: Record<string, unknown>;
     lockedFiles: Record<string, string>;
@@ -77,7 +79,7 @@ export declare function acquireLock(swarmDir?: string, timeoutMs?: number): Prom
 /**
  * Initializes the swarm state and persists it to .swarm/state.json.
  */
-export declare function initState(mission: string, maxConcurrency?: number, workerCommand?: string, swarmDir?: string, leaderModel?: string): Promise<SwarmState>;
+export declare function initState(mission: string, maxConcurrency?: number, workerCommand?: string, swarmDir?: string, leaderModel?: string, parallel?: boolean, strictDependencies?: boolean): Promise<SwarmState>;
 /**
  * Reads the current swarm state from .swarm/state.json.
  * Throws specific error if not initialized.

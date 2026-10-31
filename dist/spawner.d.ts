@@ -9,6 +9,11 @@ export declare function isGitRepo(cwd?: string): boolean;
 export declare function hasGitHead(cwd?: string): boolean;
 export declare const hasHeadCommit: typeof hasGitHead;
 /**
+ * Formats structured task instructions, system prompts, file locks, and blackboard memory
+ * into the AGENT_TASK.md task specification.
+ */
+export declare function generateAgentTaskContent(agent: AgentNode, state: SwarmState): string;
+/**
  * Creates an isolated working directory for an agent.
  * Uses a Git worktree (`git worktree add -B swarm/<agentId>`) if in a Git repo with commits,
  * or falls back to recursively copying workspace files if non-Git or unborn HEAD (Safeguard 3).

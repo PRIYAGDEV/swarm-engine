@@ -61,6 +61,8 @@ export interface SwarmState {
   leaderModel?: string;
   maxConcurrency?: number;
   workerCommand?: string;
+  parallel?: boolean;
+  strictDependencies?: boolean;
   agents: Record<string, AgentNode>;
   blackboard: Record<string, unknown>;
   lockedFiles: Record<string, string>;
@@ -231,7 +233,9 @@ export async function initState(
   maxConcurrency: number = 0,
   workerCommand?: string,
   swarmDir?: string,
-  leaderModel?: string
+  leaderModel?: string,
+  parallel: boolean = true,
+  strictDependencies: boolean = false
 ): Promise<SwarmState> {
   const dir = swarmDir || getSwarmDir();
   await fs.mkdir(dir, { recursive: true });
@@ -242,6 +246,8 @@ export async function initState(
     leaderModel: leaderModel || detected.leaderModel || undefined,
     maxConcurrency: maxConcurrency !== undefined ? maxConcurrency : 0, // 0 = infinite / unlimited
     workerCommand,
+    parallel: parallel !== false,
+    strictDependencies: strictDependencies === true,
     agents: {},
     blackboard: {},
     lockedFiles: {},

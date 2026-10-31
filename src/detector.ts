@@ -54,6 +54,107 @@ function extractModelFromRaw(raw: string): string | undefined {
 }
 
 /**
+ * Helper to scan a list of Kilo configuration file paths.
+ */
+function scanKiloConfigs(configPaths: string[]): { leader?: string; worker?: string; source?: string } | undefined {
+  for (const cfgPath of configPaths) {
+    if (!fs.existsSync(cfgPath)) continue;
+    try {
+      const raw = fs.readFileSync(cfgPath, "utf8");
+      // Match "model": "..."
+      const match = raw.match(/"model"\s*:\s*"([^"\r\n]+)"/i);
+      if (match && match[1]) {
+        let rawModel = match[1].trim();
+        let cleanModel = rawModel;
+        // Handle provider prefixes like "dahl/MiniMaxAI/MiniMax-M2.7" or "openrouter/anthropic/claude-3-7-sonnet"
+        if (cleanModel.includes("/")) {
+          const parts = cleanModel.split("/");
+          if (parts.length >= 3) {
+            cleanModel = parts[parts.length - 1]; // e.g. "MiniMax-M2.7"
+          } else if (parts.length === 2) {
+            cleanModel = parts[1];
+          }
+        }
+        if (cleanModel) {
+          return {
+            leader: cleanModel,
+            worker: cleanModel,
+            source: `Kilo config (${path.basename(cfgPath)})`,
+          };
+        }
+      }
+    } catch {}
+  }
+  return undefined;
+}
+
+/**
+ * Searches workspace-local .kilo directory for configured models.
+ */
+export function detectFromLocalKilo(cwd: string = process.cwd()): { leader?: string; worker?: string; source?: string } | undefined {
+  const localConfigs = [
+    path.join(cwd, ".kilo", "config.json"),
+    path.join(cwd, ".kilo", "kilo.jsonc"),
+    path.join(cwd, ".kilo", "kilo.json"),
+  ];
+  return scanKiloConfigs(localConfigs);
+}
+
+/**
+ * Searches global Kilo CLI and Kilo Code user configurations for the active model.
+ */
+export function detectFromGlobalKilo(): { leader?: string; worker?: string; source?: string } | undefined {
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const appData = process.env.APPDATA || "";
+
+  const globalConfigs = [
+    path.join(home, ".config", "kilo", "kilo.jsonc"),
+    path.join(home, ".config", "kilo", "kilo.json"),
+    path.join(appData, "kilo", "kilo.jsonc"),
+    path.join(appData, "kilo", "kilo.json"),
+    path.join(appData, "kilo", "User", "settings.json"),
+    path.join(home, ".kilo", "config.json"),
+    path.join(home, ".kilo", "kilo.jsonc"),
+  ];
+  return scanKiloConfigs(globalConfigs);
+}
+
+/**
+ * Combined Kilo detector checking workspace first then global.
+ */
+export function detectFromKilo(cwd: string = process.cwd()): { leader?: string; worker?: string; source?: string } | undefined {
+  return detectFromLocalKilo(cwd) || detectFromGlobalKilo();
+}
+
+/**
+ * Searches Claude Code configuration files for the configured model.
+ */
+export function detectFromClaudeCode(cwd: string = process.cwd()): { leader?: string; worker?: string; source?: string } | undefined {
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const claudePaths = [
+    path.join(cwd, ".claude", "settings.json"),
+    path.join(home, ".claude", "settings.json"),
+    path.join(home, ".claude.json"),
+  ];
+
+  for (const cp of claudePaths) {
+    if (!fs.existsSync(cp)) continue;
+    try {
+      const raw = fs.readFileSync(cp, "utf8");
+      const match = raw.match(/"(?:model|ANTHROPIC_MODEL)"\s*:\s*"([^"\r\n]+)"/i);
+      if (match && match[1] && !match[1].startsWith("__")) {
+        return {
+          leader: match[1].trim(),
+          worker: match[1].trim(),
+          source: `Claude Code (${path.basename(cp)})`,
+        };
+      }
+    } catch {}
+  }
+  return undefined;
+}
+
+/**
  * Searches editor settings.json files (VS Code, Kilo Code, Cursor, etc.)
  * for configured model environment variables and preferences.
  */
@@ -196,7 +297,7 @@ async function detectFromOllama(): Promise<string | undefined> {
  * editor settings, and workspace .env files.
  */
 export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedModels {
-  // 1. Process environment variables
+  // 1. Process environment variables (explicit user overrides)
   const envLeader =
     process.env.SWARM_LEADER_MODEL ||
     process.env.LEADER_MODEL ||
@@ -219,23 +320,53 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 2. Editor settings (VS Code / Kilo Code / Cursor / Sleepy Code)
-  const fromEditor = detectFromEditorSettings();
-  if (fromEditor && (fromEditor.leader || fromEditor.worker)) {
-    return {
-      leaderModel: fromEditor.leader || fromEditor.worker,
-      workerModel: fromEditor.worker || fromEditor.leader,
-      source: fromEditor.source,
-    };
-  }
-
-  // 3. Workspace .env files
+  // 2. Workspace .env files (project-specific overrides take precedence)
   const fromWorkspace = detectFromWorkspaceEnv(cwd);
   if (fromWorkspace && (fromWorkspace.leader || fromWorkspace.worker)) {
     return {
       leaderModel: fromWorkspace.leader || fromWorkspace.worker,
       workerModel: fromWorkspace.worker || fromWorkspace.leader,
       source: fromWorkspace.source,
+    };
+  }
+
+  // 3. Workspace-local Kilo config (<cwd>/.kilo/config.json)
+  const fromLocalKilo = detectFromLocalKilo(cwd);
+  if (fromLocalKilo && (fromLocalKilo.leader || fromLocalKilo.worker)) {
+    return {
+      leaderModel: fromLocalKilo.leader || fromLocalKilo.worker,
+      workerModel: fromLocalKilo.worker || fromLocalKilo.leader,
+      source: fromLocalKilo.source,
+    };
+  }
+
+  // 4. Global Kilo CLI config (~/.config/kilo/kilo.jsonc)
+  const fromGlobalKilo = detectFromGlobalKilo();
+  if (fromGlobalKilo && (fromGlobalKilo.leader || fromGlobalKilo.worker)) {
+    return {
+      leaderModel: fromGlobalKilo.leader || fromGlobalKilo.worker,
+      workerModel: fromGlobalKilo.worker || fromGlobalKilo.leader,
+      source: fromGlobalKilo.source,
+    };
+  }
+
+  // 5. Claude Code configurations
+  const fromClaude = detectFromClaudeCode(cwd);
+  if (fromClaude && (fromClaude.leader || fromClaude.worker)) {
+    return {
+      leaderModel: fromClaude.leader || fromClaude.worker,
+      workerModel: fromClaude.worker || fromClaude.leader,
+      source: fromClaude.source,
+    };
+  }
+
+  // 6. Editor settings (VS Code / Cursor / Sleepy Code)
+  const fromEditor = detectFromEditorSettings();
+  if (fromEditor && (fromEditor.leader || fromEditor.worker)) {
+    return {
+      leaderModel: fromEditor.leader || fromEditor.worker,
+      workerModel: fromEditor.worker || fromEditor.leader,
+      source: fromEditor.source,
     };
   }
 

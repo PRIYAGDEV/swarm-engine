@@ -193,4 +193,25 @@ test("Tier 6 - Fable Multi-Agent Execution & Live Actions", async (t) => {
     const detectedAsync = await detectActiveModels(ws.dir);
     assert.equal(detectedAsync.leaderModel, "claude-3-7-sonnet");
   });
+
+  await t.test("T6-ACT-06: Automatically discovers active model from Kilo configuration", async () => {
+    const { detectFromLocalKilo, detectActiveModelsSync } = await import("../dist/detector.js");
+    const kiloDir = path.join(ws.dir, ".kilo");
+    await fs.mkdir(kiloDir, { recursive: true });
+    await fs.writeFile(
+      path.join(kiloDir, "config.json"),
+      JSON.stringify({ model: "dahl/MiniMaxAI/MiniMax-M2.7" }),
+      "utf8"
+    );
+
+    const fromKilo = detectFromLocalKilo(ws.dir);
+    assert.ok(fromKilo);
+    assert.equal(fromKilo.leader, "MiniMax-M2.7");
+    assert.equal(fromKilo.worker, "MiniMax-M2.7");
+
+    // Remove .env so local kilo is chosen
+    await fs.rm(path.join(ws.dir, ".env"), { force: true });
+    const detected = detectActiveModelsSync(ws.dir);
+    assert.equal(detected.leaderModel, "MiniMax-M2.7");
+  });
 });

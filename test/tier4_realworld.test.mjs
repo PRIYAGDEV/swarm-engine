@@ -44,6 +44,7 @@ test('Tier 4 - Real-World Multi-Agent Workflows', async (t) => {
       const spawnRes = await client.callTool('spawn_swarm', {
         mission: 'Add GUEST role and audit logging across stack',
         maxConcurrency: 2,
+        strictDependencies: true,
         agents: [
           {
             id: 'agent-types',

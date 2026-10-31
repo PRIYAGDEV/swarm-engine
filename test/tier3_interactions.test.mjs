@@ -33,6 +33,7 @@ test('Tier 3 - Cross-Feature Interactions', async (t) => {
       const res = await client.callTool('spawn_swarm', {
         mission: 'Diamond DAG Execution',
         maxConcurrency: 4,
+        strictDependencies: true,
         agents: [
           {
             id: 'agent-A',
@@ -237,6 +238,7 @@ test('Tier 3 - Cross-Feature Interactions', async (t) => {
 
       await client.callTool('spawn_swarm', {
         mission: 'Dynamic Addition Test',
+        strictDependencies: true,
         agents: [
           {
             id: 'agent-parent',
@@ -343,6 +345,7 @@ test('Tier 3 - Cross-Feature Interactions', async (t) => {
 
       await client.callTool('spawn_swarm', {
         mission: 'Cascade Chain Test',
+        strictDependencies: true,
         agents: [
           { id: 'chain-1', role: 'r1', taskSpec: 'T1', dependsOn: [] },
           { id: 'chain-2', role: 'r2', taskSpec: 'T2', dependsOn: ['chain-1'] },
@@ -365,6 +368,44 @@ test('Tier 3 - Cross-Feature Interactions', async (t) => {
       await client.callTool('complete_agent_task', { agentId: 'chain-3', summary: 'C3 done' });
       state = await ws.readState();
       assert.ok(Object.values(state.agents).every((a) => a.status === 'completed'));
+    } finally {
+      await client?.close();
+      await ws.cleanup();
+    }
+  });
+
+  await t.test('T3-INT-07: Default parallel swarm runs all agents simultaneously with zero queuing', async () => {
+    const ws = await createTestWorkspace();
+    let client;
+    try {
+      client = await createMcpClient(ws.dir);
+
+      // Spawn 5 agents where some have dependsOn tags
+      const res = await client.callTool('spawn_swarm', {
+        mission: 'Parallel Execution Test',
+        agents: [
+          { id: 'explorer', role: 'explorer', taskSpec: 'Explore' },
+          { id: 'backend-dev', role: 'backend', taskSpec: 'Backend', dependsOn: ['explorer'] },
+          { id: 'ui-dev', role: 'ui', taskSpec: 'UI', dependsOn: ['explorer'] },
+          { id: 'tester', role: 'tester', taskSpec: 'Test', dependsOn: ['backend-dev', 'ui-dev'] },
+          { id: 'reviewer', role: 'reviewer', taskSpec: 'Review', dependsOn: ['tester'] },
+        ],
+      });
+
+      assert.equal(res.isError, false);
+      const state = await ws.readState();
+
+      // ALL 5 agents must be 'running' simultaneously in parallel
+      const runningAgents = Object.values(state.agents).filter((a) => a.status === 'running');
+      const pendingAgents = Object.values(state.agents).filter((a) => a.status === 'pending');
+
+      assert.equal(runningAgents.length, 5, 'All 5 agents must run simultaneously in parallel');
+      assert.equal(pendingAgents.length, 0, 'Zero agents should be stuck in pending or queued');
+
+      // Verify each agent has its own isolated worktree
+      for (const a of Object.values(state.agents)) {
+        assert.ok(a.worktreePath, `Agent ${a.id} must have a dedicated worktree`);
+      }
     } finally {
       await client?.close();
       await ws.cleanup();

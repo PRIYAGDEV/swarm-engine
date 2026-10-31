@@ -2,8 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { initState, readState, updateState, recordAgentAction, updateAgentProgress, normalizePath, } from "./state.js";
-import { tickScheduler, mergeAndComplete, } from "./spawner.js";
+import { tickScheduler, mergeAndComplete, generateAgentTaskContent, } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
 import { renderDashboard } from "./tui.js";
 import { detectActiveModels, detectActiveModelsSync } from "./detector.js";
@@ -56,19 +58,29 @@ export function createMcpServer() {
         version: "1.0.0",
     });
     // Tool 1: spawn_swarm
-    server.tool("spawn_swarm", "Initialize or schedule a multi-agent swarm with an overarching mission, concurrency ceiling, optional background worker command, and a list of agent specifications forming a DAG.", {
+    server.tool("spawn_swarm", "Initialize and launch a multi-agent swarm where all agents run concurrently in parallel across isolated git worktrees with zero queuing. Concurrency is infinite by default (maxConcurrency: 0).", {
         mission: z.string().describe("Overall mission statement or goal for the swarm"),
         leaderModel: z
             .string()
             .optional()
-            .describe("Model identifier used by the leader/orchestrator agent (e.g. 'claude-3-7-sonnet', 'gpt-4o')"),
+            .describe("Model identifier used by the leader/orchestrator agent (e.g. 'MiniMax-M2.7', 'claude-3-7-sonnet', 'gpt-4o')"),
         maxConcurrency: z
             .number()
             .int()
-            .positive()
+            .nonnegative()
             .optional()
-            .default(4)
-            .describe("Maximum number of agents running concurrently (default: 4)"),
+            .default(0)
+            .describe("Maximum number of agents running concurrently (0 = unlimited / infinite, default: 0)"),
+        parallel: z
+            .boolean()
+            .optional()
+            .default(true)
+            .describe("Run all agents simultaneously in parallel across isolated worktrees with zero queuing (default: true)"),
+        strictDependencies: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe("Enforce hard sequential blocking on dependsOn (default: false — all agents run parallel)"),
         workerCommand: z
             .string()
             .optional()
@@ -77,14 +89,14 @@ export function createMcpServer() {
             .array(z.object({
             id: z.string().optional().describe("Optional unique agent ID"),
             role: z.string().describe("Agent role (e.g., 'backend_developer')"),
-            model: z.string().optional().describe("User-configured model identifier or name (optional)"),
+            model: z.string().optional().describe("User-configured model identifier or name (optional, auto-detected)"),
             systemPrompt: z.string().optional().describe("Custom instructions and system prompt for the agent"),
             taskSpec: z.string().describe("Detailed task requirements and specifications for this agent"),
             dependsOn: z
                 .array(z.string())
                 .optional()
                 .default([])
-                .describe("List of agent IDs that must complete before this agent can start"),
+                .describe("Optional list of agent IDs for collaboration context and blackboard sharing. In parallel mode (default), agents run concurrently in their isolated worktrees."),
             targetFiles: z
                 .array(z.string())
                 .optional()
@@ -94,15 +106,15 @@ export function createMcpServer() {
             .optional()
             .default([])
             .describe("List of initial agent definitions"),
-    }, async ({ mission, leaderModel, maxConcurrency, workerCommand, agents }) => {
+    }, async ({ mission, leaderModel, maxConcurrency, parallel, strictDependencies, workerCommand, agents }) => {
         try {
             const detected = await detectActiveModels();
             const effectiveLeader = leaderModel || detected.leaderModel || undefined;
-            const defaultWorkerModel = detected.workerModel || undefined;
+            const defaultWorkerModel = detected.workerModel || effectiveLeader || undefined;
             const agentSpecs = (agents || []).map((a) => ({
                 id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
                 role: a.role,
-                model: a.model || defaultWorkerModel,
+                model: a.model || defaultWorkerModel || effectiveLeader,
                 systemPrompt: a.systemPrompt,
                 taskSpec: a.taskSpec,
                 dependsOn: a.dependsOn || [],
@@ -127,7 +139,7 @@ export function createMcpServer() {
                     ],
                 };
             }
-            await initState(mission, maxConcurrency, workerCommand, undefined, effectiveLeader);
+            await initState(mission, maxConcurrency !== undefined ? maxConcurrency : 0, workerCommand, undefined, effectiveLeader, parallel !== false, strictDependencies === true);
             await updateState((state) => {
                 for (const spec of agentSpecs) {
                     state.agents[spec.id] = {
@@ -387,6 +399,23 @@ export function createMcpServer() {
                 state.blackboard[key] = value;
                 allKeys = Object.keys(state.blackboard);
             });
+            // Sync blackboard update into AGENT_TASK.md in all running worktrees
+            try {
+                const syncState = await readState();
+                for (const ag of Object.values(syncState.agents || {})) {
+                    if (ag.worktreePath) {
+                        const taskPath = path.join(ag.worktreePath, "AGENT_TASK.md");
+                        if (fs.existsSync(taskPath)) {
+                            try {
+                                const updatedMd = generateAgentTaskContent(ag, syncState);
+                                fs.writeFileSync(taskPath, updatedMd, "utf8");
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
             return {
                 content: [
                     {
@@ -482,12 +511,18 @@ export function createMcpServer() {
             const lockedFilesList = Array.isArray(state.lockedFiles)
                 ? state.lockedFiles
                 : Object.keys(state.lockedFiles || {});
+            const detected = detectActiveModelsSync();
+            const effectiveLeader = state.leaderModel || detected.leaderModel;
+            const defaultWorkerModel = detected.workerModel || effectiveLeader;
             const formattedAgents = detail
-                ? agentsList
+                ? agentsList.map((a) => ({
+                    ...a,
+                    model: a.model || defaultWorkerModel,
+                }))
                 : agentsList.map((a) => ({
                     id: a.id,
                     role: a.role,
-                    model: a.model,
+                    model: a.model || defaultWorkerModel,
                     status: a.status,
                     dependsOn: a.dependsOn,
                     targetFiles: a.targetFiles,
@@ -505,7 +540,7 @@ export function createMcpServer() {
                         text: JSON.stringify({
                             initialized: true,
                             mission: state.mission,
-                            leaderModel: state.leaderModel,
+                            leaderModel: effectiveLeader,
                             maxConcurrency: state.maxConcurrency,
                             summary,
                             counts: summary,

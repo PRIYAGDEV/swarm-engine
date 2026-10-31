@@ -16,6 +16,38 @@ export interface DetectedModels {
     source?: string;
 }
 /**
+ * Searches workspace-local .kilo directory for configured models.
+ */
+export declare function detectFromLocalKilo(cwd?: string): {
+    leader?: string;
+    worker?: string;
+    source?: string;
+} | undefined;
+/**
+ * Searches global Kilo CLI and Kilo Code user configurations for the active model.
+ */
+export declare function detectFromGlobalKilo(): {
+    leader?: string;
+    worker?: string;
+    source?: string;
+} | undefined;
+/**
+ * Combined Kilo detector checking workspace first then global.
+ */
+export declare function detectFromKilo(cwd?: string): {
+    leader?: string;
+    worker?: string;
+    source?: string;
+} | undefined;
+/**
+ * Searches Claude Code configuration files for the configured model.
+ */
+export declare function detectFromClaudeCode(cwd?: string): {
+    leader?: string;
+    worker?: string;
+    source?: string;
+} | undefined;
+/**
  * Synchronous automatic model detector across environment variables,
  * editor settings, and workspace .env files.
  */

@@ -78,6 +78,11 @@ async function copyProjectFiles(sourceDir, destDir) {
         if (entry.name.startsWith(".") ||
             entry.isSymbolicLink() ||
             lowerName === "node_modules" ||
+            lowerName === "build" ||
+            lowerName === "dist" ||
+            lowerName === "out" ||
+            lowerName === "target" ||
+            lowerName === ".gradle" ||
             lowerName === "appdata" ||
             lowerName === "application data" ||
             lowerName === "local settings" ||
@@ -123,6 +128,11 @@ async function copyWorktreeBack(worktreeDir, rootDir) {
                 entry.name.startsWith(".") ||
                 entry.isSymbolicLink() ||
                 lowerName === "node_modules" ||
+                lowerName === "build" ||
+                lowerName === "dist" ||
+                lowerName === "out" ||
+                lowerName === "target" ||
+                lowerName === ".gradle" ||
                 lowerName === "appdata") {
                 continue;
             }
@@ -149,7 +159,7 @@ async function copyWorktreeBack(worktreeDir, rootDir) {
  * Formats structured task instructions, system prompts, file locks, and blackboard memory
  * into the AGENT_TASK.md task specification.
  */
-function generateAgentTaskContent(agent, state) {
+export function generateAgentTaskContent(agent, state) {
     const targetFilesList = agent.targetFiles && agent.targetFiles.length > 0
         ? agent.targetFiles.map((f) => `- ${f}`).join("\n")
         : "None specified";
@@ -322,14 +332,18 @@ export async function tickScheduler(cwd = process.cwd()) {
             for (const agent of pendingAgents) {
                 if (!isUnlimited && availableSlots <= 0)
                     break;
-                // 1. Dependency check: all dependsOn agent IDs must be 'completed'
-                const dependsOn = agent.dependsOn || [];
-                const dependenciesMet = dependsOn.every((depId) => {
-                    const dep = state.agents[depId];
-                    return dep && dep.status === "completed";
-                });
-                if (!dependenciesMet) {
-                    continue;
+                // 1. Dependency check:
+                // By default (parallel execution / zero queuing), all agents run simultaneously in parallel.
+                // Hard sequential gating is only enforced if strictDependencies is explicitly set to true.
+                if (state.strictDependencies === true) {
+                    const dependsOn = agent.dependsOn || [];
+                    const dependenciesMet = dependsOn.every((depId) => {
+                        const dep = state.agents[depId];
+                        return dep && dep.status === "completed";
+                    });
+                    if (!dependenciesMet) {
+                        continue;
+                    }
                 }
                 // 2. File lock check (Safeguard 4: normalized paths)
                 const normTargets = Array.from(new Set((agent.targetFiles || []).map(normalizePath).filter(Boolean)));

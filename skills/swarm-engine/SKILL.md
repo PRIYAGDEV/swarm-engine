@@ -18,7 +18,9 @@ metadata:
 
 Use this skill whenever you need to coordinate, parallelize, or execute complex coding missions across multiple autonomous subagents with zero git merge conflicts.
 
-Swarm Engine provisions dedicated `git worktree` sandboxes for each subagent, prevents file write collisions using atomic directory-based locks, schedules tasks via a Directed Acyclic Graph (DAG), coordinates shared memory via a real-time blackboard, and streams live visual cards and diffs to your terminal.
+Swarm Engine provisions dedicated `git worktree` sandboxes for each subagent, prevents file write collisions using atomic directory-based locks, runs all agents simultaneously in parallel with zero queuing and infinite concurrency, coordinates shared memory via a real-time blackboard, and streams live visual cards and diffs to your terminal.
+
+Swarm Engine automatically detects your active model directly from your editor/environment (Kilo CLI `~/.config/kilo/kilo.jsonc`, Claude Code, Cursor, Ollama, etc.) with zero hardcoded model names.
 
 ---
 
