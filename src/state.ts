@@ -5,8 +5,17 @@ import { detectActiveModelsSync } from "./detector.js";
 
 /**
  * Status of an individual agent node in the swarm.
+ * Expanded to include Antigravity's native lifecycle states.
  */
-export type AgentStatus = "pending" | "running" | "completed" | "failed";
+export type AgentStatus =
+  | "pending"
+  | "running"
+  | "waiting"
+  | "working"
+  | "stopped"
+  | "completed"
+  | "failed"
+  | "killed";
 
 /**
  * Single line diff item (green insertion or red deletion).
@@ -26,6 +35,60 @@ export interface AgentAction {
   detail?: string;
   diffs?: AgentDiffItem[];
   timestamp: number;
+}
+
+/**
+ * Channel lifecycle operation embedded within a board control message.
+ */
+export interface BoardMessageControl {
+  op: "create" | "subscribe" | "unsubscribe" | "archive";
+  channel: string;
+  topic?: string;
+  members?: string[];
+  prev?: Record<string, string[]>;
+  next?: Record<string, string[]>;
+}
+
+/**
+ * Immutable sequence-numbered message logged to the shared message board.
+ */
+export interface BoardMessage {
+  /** Monotonically increasing sequence number (#1, #2, #3, ...) */
+  seq: number;
+  /** Identifier of the message author (e.g. "coordinator", "parser", "monitor", "system") */
+  from: string;
+  /** Parsed mention tokens (e.g. ["@coordinator", "@all", "@#ui", "parser"]) */
+  to?: string[];
+  /** Channel name where this message was posted (defaults to "main") */
+  channel: string;
+  /** Message text content */
+  text: string;
+  /** Epoch millisecond timestamp when the message was posted */
+  timestamp: number;
+  /** Optional channel control payload for channel management operations */
+  control?: BoardMessageControl;
+  /** Compatibility alias for from (used in Antigravity transcripts) */
+  agent?: string;
+  /** Optional ISO 8601 formatted string timestamp */
+  time?: string;
+}
+
+/**
+ * Metadata definition for a partitioned topic channel.
+ */
+export interface ChannelMeta {
+  /** Channel name (slug matching /^[a-z][a-z0-9-]{0,23}$/, e.g. "main", "parser", "ui") */
+  name: string;
+  /** Optional descriptive purpose or topic of the channel */
+  topic?: string;
+  /** Identifier of the agent or system that created the channel */
+  createdBy: string;
+  /** Epoch timestamp when the channel was created */
+  createdAt: number;
+  /** Whether the channel has been archived (archived channels are read-only and wake nobody) */
+  archived?: boolean;
+  /** List of agent IDs subscribed to this channel. Coordinator/narrator/monitor use ["*"] */
+  subscribers: string[];
 }
 
 /**
@@ -51,6 +114,19 @@ export interface AgentNode {
   verb?: string;
   startedAt?: number;
   completedAt?: number;
+
+  // Milestone 1 Message Board Cursor & Channel extensions
+  channels?: string[];
+  wakeMode?: "mentions" | "all" | "none";
+  waitSince?: number;
+  lastReadSeq?: number;
+  lastPostSeq?: number;
+  lastPostTime?: number;
+
+  // Hierarchical & Workspace extensions (M2/M3 forward compatibility)
+  parentId?: string;
+  helperIds?: string[];
+  workspace?: "inherit" | "share" | "branch";
 }
 
 /**
@@ -66,6 +142,10 @@ export interface SwarmState {
   agents: Record<string, AgentNode>;
   blackboard: Record<string, unknown>;
   lockedFiles: Record<string, string>;
+
+  // Milestone 1 Message Board Subsystem extensions
+  headSeq?: number;
+  channels?: Record<string, ChannelMeta>;
 }
 
 /**
@@ -87,6 +167,13 @@ export function normalizePath(p: string): string {
  */
 export function getSwarmDir(cwd: string = process.cwd()): string {
   return path.resolve(cwd, ".swarm");
+}
+
+/**
+ * Helper to compute the absolute path to .swarm/board.jsonl.
+ */
+export function getBoardPath(swarmDir?: string): string {
+  return path.join(swarmDir || getSwarmDir(), "board.jsonl");
 }
 
 /**
@@ -241,6 +328,7 @@ export async function initState(
   await fs.mkdir(dir, { recursive: true });
 
   const detected = detectActiveModelsSync(path.dirname(dir));
+  const now = Date.now();
   const initialState: SwarmState = {
     mission,
     leaderModel: leaderModel || detected.leaderModel || undefined,
@@ -251,6 +339,17 @@ export async function initState(
     agents: {},
     blackboard: {},
     lockedFiles: {},
+    headSeq: 0,
+    channels: {
+      main: {
+        name: "main",
+        topic: "Default swarm coordination channel",
+        createdBy: "system",
+        createdAt: now,
+        archived: false,
+        subscribers: ["*"],
+      },
+    },
   };
 
   await acquireLock(dir);
@@ -273,6 +372,10 @@ export async function initState(
       }
     }
 
+    // Ensure board.jsonl is initialized cleanly alongside state.json
+    const boardPath = path.join(dir, "board.jsonl");
+    await fs.writeFile(boardPath, "", "utf8");
+
     return initialState;
   } finally {
     await releaseLock(dir);
@@ -281,14 +384,55 @@ export async function initState(
 
 /**
  * Reads the current swarm state from .swarm/state.json.
- * Throws specific error if not initialized.
+ * Automatically normalizes legacy state files for seamless backward compatibility.
  */
 export async function readState(swarmDir?: string): Promise<SwarmState> {
   const dir = swarmDir || getSwarmDir();
   const statePath = path.join(dir, "state.json");
   try {
     const content = await fs.readFile(statePath, "utf8");
-    return JSON.parse(content) as SwarmState;
+    const state = JSON.parse(content) as SwarmState;
+
+    // --- Automatic Backward-Compatibility Migration ---
+    if (typeof state.headSeq !== "number") {
+      state.headSeq = 0;
+    }
+    if (!state.channels || typeof state.channels !== "object") {
+      state.channels = {
+        main: {
+          name: "main",
+          topic: "Default swarm coordination channel",
+          createdBy: "system",
+          createdAt: Date.now(),
+          archived: false,
+          subscribers: ["*"],
+        },
+      };
+    }
+    if (!state.blackboard || typeof state.blackboard !== "object") {
+      state.blackboard = {};
+    }
+    if (!state.lockedFiles || typeof state.lockedFiles !== "object") {
+      state.lockedFiles = {};
+    }
+    if (!state.agents || typeof state.agents !== "object") {
+      state.agents = {};
+    }
+
+    // Normalize individual agent nodes
+    for (const agent of Object.values(state.agents)) {
+      if (!agent.channels || !Array.isArray(agent.channels)) {
+        agent.channels = ["main"];
+      }
+      if (!agent.wakeMode) {
+        agent.wakeMode = "mentions";
+      }
+      if (typeof agent.lastReadSeq !== "number") {
+        agent.lastReadSeq = 0;
+      }
+    }
+
+    return state;
   } catch (err: any) {
     if (err.code === "ENOENT") {
       throw new Error(
@@ -384,4 +528,60 @@ export async function updateAgentProgress(
   }, dir);
 }
 
+/**
+ * Updates an agent's message board cursor tracking fields (lastReadSeq, waitSince, wakeMode, channels).
+ */
+export async function updateAgentCursor(
+  agentId: string,
+  cursor: {
+    lastReadSeq?: number;
+    waitSince?: number;
+    wakeMode?: "mentions" | "all" | "none";
+    channels?: string[];
+    lastPostSeq?: number;
+    lastPostTime?: number;
+    status?: AgentStatus;
+  },
+  swarmDir?: string
+): Promise<void> {
+  const dir = swarmDir || getSwarmDir();
+  await updateState((state) => {
+    const agent = state.agents[agentId];
+    if (!agent) return;
+    if (cursor.lastReadSeq !== undefined) agent.lastReadSeq = cursor.lastReadSeq;
+    if (cursor.waitSince !== undefined) agent.waitSince = cursor.waitSince;
+    if (cursor.wakeMode !== undefined) agent.wakeMode = cursor.wakeMode;
+    if (cursor.channels !== undefined) agent.channels = cursor.channels;
+    if (cursor.lastPostSeq !== undefined) agent.lastPostSeq = cursor.lastPostSeq;
+    if (cursor.lastPostTime !== undefined) agent.lastPostTime = cursor.lastPostTime;
+    if (cursor.status !== undefined) agent.status = cursor.status;
+  }, dir);
+}
 
+/**
+ * Ensures a channel exists in the state metadata, creating it if not present.
+ */
+export async function ensureChannel(
+  name: string,
+  topic?: string,
+  createdBy: string = "system",
+  swarmDir?: string
+): Promise<ChannelMeta> {
+  const dir = swarmDir || getSwarmDir();
+  return await updateState((state) => {
+    if (!state.channels) state.channels = {};
+    if (state.channels[name]) {
+      return state.channels[name];
+    }
+    const meta: ChannelMeta = {
+      name,
+      topic,
+      createdBy,
+      createdAt: Date.now(),
+      archived: false,
+      subscribers: [createdBy],
+    };
+    state.channels[name] = meta;
+    return meta;
+  }, dir);
+}

@@ -30,8 +30,7 @@ Activate the `swarm-engine` skill whenever a task requires multi-agent paralleli
 2. **Unbounded Specialist Decomposition**: When breaking down a mission into 5, 10, 15, or 20+ specialized agent roles (e.g. API architect, schema engineer, frontend designer, unit tester, security auditor, performance tuner, documentation author).
 3. **Collision-Free Concurrent Editing**: When multiple AI agents or background tasks need to edit the same repository simultaneously without overwriting files or producing git merge conflicts.
 4. **Isolated Build & Test Verification**: When running experimental refactorings, intensive test suites, or package builds in clean, disposable workspaces on dedicated branches (`swarm/<agentId>`).
-5. **Get Shit Done (GSD) Phase & Wave Acceleration**: When executing GSD project plans (`.planning/phases/`), mapping execution waves and individual plans directly into parallel subagent swarms.
-6. **Live Observability & Telemetry**: When real-time visual monitoring of agent actions (reads, edits, bash commands, diffs, poetic verbs, tok/s, token counts) is needed in the terminal via the Fable TUI dashboard.
+5. **Live Observability & Telemetry**: When real-time visual monitoring of agent actions (reads, edits, bash commands, diffs, poetic verbs, tok/s, token counts) is needed in the terminal via the Fable TUI dashboard.
 
 ---
 
@@ -236,33 +235,4 @@ Swarm Engine is engineered with 4 unbreakable architectural safeguards:
 4. **Safeguard 4 — Normalized Atomic Directory File Locks**:
    File paths are canonicalized (`normalizePath`) to resolve platform-specific directory separators (Windows `\` vs POSIX `/`) and case differences. State writes and lock acquisitions are serialized via an atomic mutex directory (`.swarm/state.lock`) backed by PID liveness checks and stale lock reclamation (>30s or dead PID).
 
----
 
-## 🔄 Get Shit Done (GSD) Workflow Integration
-
-Swarm Engine natively bridges Get Shit Done (GSD) project planning and wave execution. While GSD structures milestones, phases, and roadmaps in `.planning/`, Swarm Engine provides the high-concurrency OS runtime to execute them concurrently with zero conflicts.
-
-### 1. Mapping GSD Waves to Swarm Subagents
-In GSD workflows:
-- A phase is broken into plans: `.planning/phases/XX-name/{phase}-{plan}-PLAN.md`.
-- Each plan specifies `wave: N`, `depends_on: [...]`, and `files_modified: [...]`.
-- Map each GSD plan directly into a Swarm Engine subagent in `spawn_swarm`:
-  - `agent.id`: GSD plan identifier (e.g. `plan-02-01`).
-  - `agent.role`: Assigned specialist role (e.g. `auth_security_guard`).
-  - `agent.taskSpec`: Content of `{phase}-{plan}-PLAN.md`.
-  - `agent.targetFiles`: The plan's declared `files_modified`.
-  - `agent.dependsOn`: The plan's declared `depends_on`.
-
-### 2. Decomposing Monolithic Plans into 5–20+ Specialized Agents
-Standard GSD runners often execute plans sequentially due to host environment limitations. Swarm Engine removes this bottleneck:
-- Under infinite concurrency (`maxConcurrency: 0`), all plans in a wave run in parallel.
-- Large individual plans can be sub-divided into 5 to 10 micro-specialists (e.g., schema designer, route builder, unit tester, documentation engineer) operating simultaneously in dedicated worktrees.
-
-### 3. Blackboard Memory Synchronization
-- Early-stage agents publish types, schemas, and API contracts to the shared blackboard using `write_blackboard`.
-- Downstream agents in later waves automatically receive updated blackboard state inside their worktree's `AGENT_TASK.md`.
-
-### 4. Summary & Verification Feedback Loop
-- As each agent finishes, `complete_agent_task` merges its worktree and records a completion summary.
-- These summaries feed directly into GSD `{phase}-{plan}-SUMMARY.md`.
-- After all agents complete, run GSD goal-backward verification (`must_haves` checklist: truths, artifacts, key links) to produce `{phase}-VERIFICATION.md`.

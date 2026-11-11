@@ -23,6 +23,12 @@ export function getSwarmDir(cwd = process.cwd()) {
     return path.resolve(cwd, ".swarm");
 }
 /**
+ * Helper to compute the absolute path to .swarm/board.jsonl.
+ */
+export function getBoardPath(swarmDir) {
+    return path.join(swarmDir || getSwarmDir(), "board.jsonl");
+}
+/**
  * Removes .swarm/state.lock with retry to handle transient Windows file locks.
  */
 export async function releaseLock(swarmDir) {
@@ -153,6 +159,7 @@ export async function initState(mission, maxConcurrency = 0, workerCommand, swar
     const dir = swarmDir || getSwarmDir();
     await fs.mkdir(dir, { recursive: true });
     const detected = detectActiveModelsSync(path.dirname(dir));
+    const now = Date.now();
     const initialState = {
         mission,
         leaderModel: leaderModel || detected.leaderModel || undefined,
@@ -163,6 +170,17 @@ export async function initState(mission, maxConcurrency = 0, workerCommand, swar
         agents: {},
         blackboard: {},
         lockedFiles: {},
+        headSeq: 0,
+        channels: {
+            main: {
+                name: "main",
+                topic: "Default swarm coordination channel",
+                createdBy: "system",
+                createdAt: now,
+                archived: false,
+                subscribers: ["*"],
+            },
+        },
     };
     await acquireLock(dir);
     try {
@@ -183,6 +201,9 @@ export async function initState(mission, maxConcurrency = 0, workerCommand, swar
                 await new Promise((r) => setTimeout(r, 20 * (attempt + 1)));
             }
         }
+        // Ensure board.jsonl is initialized cleanly alongside state.json
+        const boardPath = path.join(dir, "board.jsonl");
+        await fs.writeFile(boardPath, "", "utf8");
         return initialState;
     }
     finally {
@@ -191,14 +212,52 @@ export async function initState(mission, maxConcurrency = 0, workerCommand, swar
 }
 /**
  * Reads the current swarm state from .swarm/state.json.
- * Throws specific error if not initialized.
+ * Automatically normalizes legacy state files for seamless backward compatibility.
  */
 export async function readState(swarmDir) {
     const dir = swarmDir || getSwarmDir();
     const statePath = path.join(dir, "state.json");
     try {
         const content = await fs.readFile(statePath, "utf8");
-        return JSON.parse(content);
+        const state = JSON.parse(content);
+        // --- Automatic Backward-Compatibility Migration ---
+        if (typeof state.headSeq !== "number") {
+            state.headSeq = 0;
+        }
+        if (!state.channels || typeof state.channels !== "object") {
+            state.channels = {
+                main: {
+                    name: "main",
+                    topic: "Default swarm coordination channel",
+                    createdBy: "system",
+                    createdAt: Date.now(),
+                    archived: false,
+                    subscribers: ["*"],
+                },
+            };
+        }
+        if (!state.blackboard || typeof state.blackboard !== "object") {
+            state.blackboard = {};
+        }
+        if (!state.lockedFiles || typeof state.lockedFiles !== "object") {
+            state.lockedFiles = {};
+        }
+        if (!state.agents || typeof state.agents !== "object") {
+            state.agents = {};
+        }
+        // Normalize individual agent nodes
+        for (const agent of Object.values(state.agents)) {
+            if (!agent.channels || !Array.isArray(agent.channels)) {
+                agent.channels = ["main"];
+            }
+            if (!agent.wakeMode) {
+                agent.wakeMode = "mentions";
+            }
+            if (typeof agent.lastReadSeq !== "number") {
+                agent.lastReadSeq = 0;
+            }
+        }
+        return state;
     }
     catch (err) {
         if (err.code === "ENOENT") {
@@ -277,5 +336,53 @@ export async function updateAgentProgress(agentId, progress, swarmDir) {
             agent.tokens = progress.tokens;
         if (progress.tokPerSec !== undefined)
             agent.tokPerSec = progress.tokPerSec;
+    }, dir);
+}
+/**
+ * Updates an agent's message board cursor tracking fields (lastReadSeq, waitSince, wakeMode, channels).
+ */
+export async function updateAgentCursor(agentId, cursor, swarmDir) {
+    const dir = swarmDir || getSwarmDir();
+    await updateState((state) => {
+        const agent = state.agents[agentId];
+        if (!agent)
+            return;
+        if (cursor.lastReadSeq !== undefined)
+            agent.lastReadSeq = cursor.lastReadSeq;
+        if (cursor.waitSince !== undefined)
+            agent.waitSince = cursor.waitSince;
+        if (cursor.wakeMode !== undefined)
+            agent.wakeMode = cursor.wakeMode;
+        if (cursor.channels !== undefined)
+            agent.channels = cursor.channels;
+        if (cursor.lastPostSeq !== undefined)
+            agent.lastPostSeq = cursor.lastPostSeq;
+        if (cursor.lastPostTime !== undefined)
+            agent.lastPostTime = cursor.lastPostTime;
+        if (cursor.status !== undefined)
+            agent.status = cursor.status;
+    }, dir);
+}
+/**
+ * Ensures a channel exists in the state metadata, creating it if not present.
+ */
+export async function ensureChannel(name, topic, createdBy = "system", swarmDir) {
+    const dir = swarmDir || getSwarmDir();
+    return await updateState((state) => {
+        if (!state.channels)
+            state.channels = {};
+        if (state.channels[name]) {
+            return state.channels[name];
+        }
+        const meta = {
+            name,
+            topic,
+            createdBy,
+            createdAt: Date.now(),
+            archived: false,
+            subscribers: [createdBy],
+        };
+        state.channels[name] = meta;
+        return meta;
     }, dir);
 }

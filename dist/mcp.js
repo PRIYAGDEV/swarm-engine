@@ -4,7 +4,8 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { initState, readState, updateState, recordAgentAction, updateAgentProgress, normalizePath, } from "./state.js";
+import { initState, readState, updateState, recordAgentAction, updateAgentProgress, normalizePath, getSwarmDir, } from "./state.js";
+import { postMessage, readBoard, swarmWait, MAIN_CHANNEL, } from "./board.js";
 import { tickScheduler, mergeAndComplete, generateAgentTaskContent, } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
 import { renderDashboard } from "./tui.js";
@@ -636,6 +637,536 @@ export function createMcpServer() {
         }
         catch (err) {
             console.error("[swarm-engine] run_agent_task error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 10: post_message
+    server.tool("post_message", "Post an immutable message to the shared swarm message board. Supports doorbell addressing via '@<name>', '@<prefix>' (for numbered worker copies), '@all' (broadcast to all agents), and '@#<channel>' (all active channel subscribers). Naming an agent wakes it from swarm_wait; naming nobody logs the message without ringing doorbells.", {
+        text: z
+            .string()
+            .describe("Message text to post on the shared board. Must not be empty. Supports @name, @prefix, @all, and @#channel doorbell mentions."),
+        channel: z
+            .string()
+            .optional()
+            .default("main")
+            .describe("Target channel name (default: 'main'). Use dedicated channels to isolate workstream chatter."),
+        from: z
+            .string()
+            .optional()
+            .describe("Optional sender identity. Defaults to 'coordinator' or detected active agent from environment."),
+    }, async ({ text, channel, from }) => {
+        try {
+            let state;
+            try {
+                state = await readState();
+            }
+            catch {
+                state = await initState("Default Swarm Mission", 0, undefined, getSwarmDir());
+            }
+            if (!text || typeof text !== "string" || text.trim() === "") {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: "Error: Message text cannot be empty or whitespace-only." }],
+                };
+            }
+            const targetChannel = (channel || MAIN_CHANNEL).trim().toLowerCase();
+            if (targetChannel !== MAIN_CHANNEL && state.channels?.[targetChannel]?.archived) {
+                return {
+                    isError: true,
+                    content: [
+                        {
+                            type: "text",
+                            text: `Error: Channel '#${targetChannel}' is archived and read-only.`,
+                        },
+                    ],
+                };
+            }
+            const sender = from || process.env.SWARM_AGENT_ID || "coordinator";
+            const message = await postMessage(state, getSwarmDir(), {
+                text,
+                channel: targetChannel,
+                from: sender,
+            });
+            const mentions = message.mentions || [];
+            const channelMentions = message.channelMentions || [];
+            const broadcast = Boolean(message.broadcast);
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: true,
+                            seq: message.seq,
+                            message,
+                            mentions,
+                            channelMentions,
+                            broadcast,
+                        }),
+                    },
+                ],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] post_message error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 11: read_board
+    server.tool("read_board", "Read messages from the shared swarm message board. Reads messages with sequence number strictly greater than 'since' (default: 0) up to 'limit' (default: 200). Can filter by channel ('main', specific channel name, or '*' for all channels). Optionally returns real-time member statuses.", {
+        since: z
+            .number()
+            .int()
+            .optional()
+            .default(0)
+            .describe("Read messages with sequence number strictly greater than this cursor (default: 0). Pass the highest sequence number already seen."),
+        channel: z
+            .string()
+            .optional()
+            .describe("Channel to filter by ('main', specific channel name, or '*' for all channels). Defaults to member's subscribed channels or all if coordinator."),
+        limit: z
+            .number()
+            .int()
+            .optional()
+            .default(200)
+            .describe("Maximum number of messages to return (default: 200, max: 1000)."),
+        status: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe("If true, returns member status snapshot along with messages."),
+        member: z
+            .string()
+            .optional()
+            .describe("Optional member name querying the board (used to apply channel visibility rules if channel is omitted)."),
+        memberName: z
+            .string()
+            .optional()
+            .describe("Alias for member."),
+    }, async ({ since, channel, limit, status, member, memberName }) => {
+        try {
+            let state;
+            try {
+                state = await readState();
+            }
+            catch {
+                // Uninitialized workspace: handled gracefully returning headSeq: 0
+            }
+            const effectiveSince = since !== undefined && since > 0 ? since : 0;
+            const effectiveLimit = limit !== undefined ? limit : 200;
+            const effectiveMember = memberName || member || process.env.SWARM_AGENT_ID || "coordinator";
+            const result = await readBoard(state || getSwarmDir(), getSwarmDir(), {
+                since: effectiveSince,
+                channel: channel ? channel.trim().toLowerCase() : undefined,
+                limit: effectiveLimit,
+                status: status === true,
+                memberName: effectiveMember,
+            });
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: true,
+                            headSeq: result.headSeq,
+                            count: result.messages.length,
+                            messages: result.messages,
+                            ...(result.members ? { members: result.members, roster: result.members } : {}),
+                            ...(result.channels ? { channels: result.channels } : {}),
+                        }),
+                    },
+                ],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] read_board error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 12: swarm_wait
+    server.tool("swarm_wait", "Park agent execution until a matching message is posted to the board (zero-token sleep). Wakes when a new message with seq > since arrives that addresses the agent (via @name, @prefix, @all, or @#channel), or wakes on any new message if mentions_only is false. Includes a configurable timeout in milliseconds.", {
+        since: z
+            .number()
+            .int()
+            .optional()
+            .default(0)
+            .describe("The sequence number cursor to wait from. Agent wakes for qualifying messages with seq > since. Always pass the highest sequence number already seen."),
+        mentions_only: z
+            .boolean()
+            .optional()
+            .default(true)
+            .describe("If true (default), wake only when explicitly named (@name, @prefix, @all, or @#channel). If false, wake on any new message in subscribed channels."),
+        timeoutMs: z
+            .number()
+            .int()
+            .optional()
+            .default(30000)
+            .describe("Maximum time in milliseconds to wait before timing out (default: 30000ms / 30s, max: 300000ms / 5m)."),
+        member: z
+            .string()
+            .optional()
+            .describe("Optional member name to wait as (defaults to active agent from environment or 'coordinator')."),
+        memberName: z
+            .string()
+            .optional()
+            .describe("Alias for member."),
+        channel: z
+            .string()
+            .optional()
+            .describe("Optional channel name to filter messages while waiting."),
+    }, async ({ since, mentions_only, timeoutMs, member, memberName, channel }) => {
+        try {
+            let state;
+            try {
+                state = await readState();
+            }
+            catch {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: "Error: Swarm not initialized" }],
+                };
+            }
+            const effectiveMember = memberName || member || process.env.SWARM_AGENT_ID || "coordinator";
+            const result = await swarmWait(state, getSwarmDir(), {
+                memberName: effectiveMember,
+                since: since !== undefined && since > 0 ? since : 0,
+                channel: channel ? channel.trim().toLowerCase() : undefined,
+                mentionsOnly: mentions_only !== false,
+                timeoutMs,
+            });
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: true,
+                            timedOut: result.timedOut,
+                            headSeq: result.headSeq,
+                            count: result.messages.length,
+                            messages: result.messages,
+                        }),
+                    },
+                ],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] swarm_wait error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 13: swarm
+    server.tool("swarm", "Unified swarm management tool. In Milestone 1, provides channel management (create, subscribe, unsubscribe, list, archive) to partition message board communication across topic streams. Also provides swarm status reporting.", {
+        action: z
+            .enum(["channel", "status", "models", "add", "model", "kill", "title"])
+            .describe("Action to perform on the swarm. Use 'channel' for channel management."),
+        op: z
+            .enum(["create", "subscribe", "unsubscribe", "list", "archive"])
+            .optional()
+            .describe("Channel operation (required when action is 'channel')"),
+        channel: z
+            .string()
+            .optional()
+            .describe("Target channel name (e.g. 'parser', 'ui'). Required for create, subscribe, unsubscribe, archive."),
+        topic: z
+            .string()
+            .optional()
+            .describe("Topic or description of the channel (used with op: 'create')"),
+        members: z
+            .array(z.string())
+            .optional()
+            .describe("List of member/agent names to subscribe or unsubscribe"),
+        name: z
+            .string()
+            .optional()
+            .describe("Member name (alternative to members array for single-member ops)"),
+        caller: z
+            .string()
+            .optional()
+            .describe("Optional caller identity (defaults to 'coordinator' or detected agent)"),
+    }, async ({ action, op, channel, topic, members, name, caller }) => {
+        try {
+            let state;
+            try {
+                state = await readState();
+            }
+            catch {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: "Error: Swarm not initialized" }],
+                };
+            }
+            const effectiveCaller = caller || process.env.SWARM_AGENT_ID || "coordinator";
+            if (action === "status") {
+                const agentsList = Object.values(state.agents || {});
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                action: "status",
+                                mission: state.mission,
+                                headSeq: state.headSeq || 0,
+                                totalAgents: agentsList.length,
+                                channels: state.channels ? Object.values(state.channels) : [],
+                            }),
+                        },
+                    ],
+                };
+            }
+            if (action !== "channel") {
+                return {
+                    isError: true,
+                    content: [
+                        {
+                            type: "text",
+                            text: `Error: Action '${action}' is not supported in Milestone 1 (available in Milestone 2).`,
+                        },
+                    ],
+                };
+            }
+            if (!op) {
+                return {
+                    isError: true,
+                    content: [
+                        {
+                            type: "text",
+                            text: "Error: 'op' is required when action is 'channel' (must be create, subscribe, unsubscribe, list, or archive).",
+                        },
+                    ],
+                };
+            }
+            const swarmDir = getSwarmDir();
+            if (op === "list") {
+                const channelList = [
+                    {
+                        name: MAIN_CHANNEL,
+                        channel: MAIN_CHANNEL,
+                        topic: "Universal swarm coordination channel",
+                        createdBy: "system",
+                        createdAt: 0,
+                        archived: false,
+                        subscriberCount: Object.keys(state.agents || {}).length + 1,
+                        subscribers: ["coordinator", ...Object.keys(state.agents || {})],
+                    },
+                    ...Object.values(state.channels || {}).map((c) => ({
+                        name: c.name,
+                        channel: c.name,
+                        topic: c.topic || "",
+                        createdBy: c.createdBy,
+                        createdAt: c.createdAt,
+                        archived: Boolean(c.archived),
+                        subscriberCount: (c.subscribers || []).length,
+                        subscribers: c.subscribers || [],
+                    })),
+                ];
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                op: "list",
+                                channels: channelList,
+                            }),
+                        },
+                    ],
+                };
+            }
+            const normChannel = (channel || "").trim();
+            if (!normChannel) {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: `Error: 'channel' is required for op '${op}'.` }],
+                };
+            }
+            const CHANNEL_REGEX = /^[a-z][a-z0-9-]{0,23}$/;
+            const RESERVED = new Set(["main", "all", "here"]);
+            if (op === "create") {
+                if (normChannel.toLowerCase() === "main" || RESERVED.has(normChannel.toLowerCase())) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: Cannot create reserved channel '${normChannel}'.` }],
+                    };
+                }
+                if (!CHANNEL_REGEX.test(normChannel)) {
+                    return {
+                        isError: true,
+                        content: [
+                            {
+                                type: "text",
+                                text: `Error: Invalid channel name '${normChannel}'. Must start with a lowercase letter, contain only lowercase letters, digits, and hyphens, max 24 chars, and not contain spaces or uppercase.`,
+                            },
+                        ],
+                    };
+                }
+                if (state.channels?.[normChannel] && !state.channels[normChannel].archived) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: Channel '#${normChannel}' already exists.` }],
+                    };
+                }
+                await postMessage(state, swarmDir, {
+                    text: `Created channel #${normChannel}${topic ? `: ${topic}` : ""}`,
+                    from: effectiveCaller,
+                    channel: MAIN_CHANNEL,
+                    control: {
+                        op: "create",
+                        channel: normChannel,
+                        topic: topic || "",
+                        members: members || [effectiveCaller],
+                    },
+                });
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                op: "create",
+                                channel: normChannel,
+                                topic: topic || "",
+                            }),
+                        },
+                    ],
+                };
+            }
+            const chLower = normChannel.toLowerCase();
+            if (chLower === MAIN_CHANNEL) {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: `Error: Cannot ${op} the main channel.` }],
+                };
+            }
+            const existingChannel = state.channels?.[chLower] || state.channels?.[normChannel];
+            if (!existingChannel) {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: `Error: Channel '#${normChannel}' does not exist.` }],
+                };
+            }
+            const targetChannelName = existingChannel.name;
+            if (op === "archive") {
+                if (existingChannel.archived) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: Channel '#${normChannel}' is already archived.` }],
+                    };
+                }
+                await postMessage(state, swarmDir, {
+                    text: `Archived channel #${targetChannelName}`,
+                    from: effectiveCaller,
+                    channel: targetChannelName,
+                    control: {
+                        op: "archive",
+                        channel: targetChannelName,
+                    },
+                });
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                op: "archive",
+                                channel: targetChannelName,
+                                archived: true,
+                            }),
+                        },
+                    ],
+                };
+            }
+            if (existingChannel.archived) {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: `Error: Channel '#${normChannel}' is archived.` }],
+                };
+            }
+            const targetMembers = members || (name ? [name] : [effectiveCaller]);
+            if (!targetMembers || targetMembers.length === 0) {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: `Error: No members specified for op '${op}'.` }],
+                };
+            }
+            const warnings = [];
+            for (const m of targetMembers) {
+                if (m !== "coordinator" && (!state.agents || !state.agents[m])) {
+                    warnings.push(`Member '${m}' is not currently registered as an active agent.`);
+                }
+            }
+            if (op === "subscribe") {
+                await postMessage(state, swarmDir, {
+                    text: `Subscribed ${targetMembers.join(", ")} to #${targetChannelName}`,
+                    from: effectiveCaller,
+                    channel: targetChannelName,
+                    control: {
+                        op: "subscribe",
+                        channel: targetChannelName,
+                        members: targetMembers,
+                    },
+                });
+                const updatedState = await readState();
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                op: "subscribe",
+                                channel: targetChannelName,
+                                subscribers: updatedState.channels?.[targetChannelName]?.subscribers || [],
+                                warnings: warnings.length > 0 ? warnings : undefined,
+                            }),
+                        },
+                    ],
+                };
+            }
+            if (op === "unsubscribe") {
+                await postMessage(state, swarmDir, {
+                    text: `Unsubscribed ${targetMembers.join(", ")} from #${targetChannelName}`,
+                    from: effectiveCaller,
+                    channel: targetChannelName,
+                    control: {
+                        op: "unsubscribe",
+                        channel: targetChannelName,
+                        members: targetMembers,
+                    },
+                });
+                const updatedState = await readState();
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                op: "unsubscribe",
+                                channel: targetChannelName,
+                                subscribers: updatedState.channels?.[targetChannelName]?.subscribers || [],
+                                warnings: warnings.length > 0 ? warnings : undefined,
+                            }),
+                        },
+                    ],
+                };
+            }
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: Unsupported channel operation '${op}'.` }],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] swarm channel error:", err);
             return {
                 isError: true,
                 content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],

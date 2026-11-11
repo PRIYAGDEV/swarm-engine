@@ -47,6 +47,18 @@ export function getTargetEnvironments() {
   
   const targets = [
     {
+      name: "DeepSeek Harness",
+      parentDir: path.join(home, ".dsh", "skills"),
+      targetDir: path.join(home, ".dsh", "skills", "swarm-engine"),
+      required: false,
+    },
+    {
+      name: "Agents Standards (.agents)",
+      parentDir: path.join(home, ".agents", "skills"),
+      targetDir: path.join(home, ".agents", "skills", "swarm-engine"),
+      required: false,
+    },
+    {
       name: "Global Antigravity (Gemini)",
       parentDir: path.join(home, ".gemini", "config", "skills"),
       targetDir: path.join(home, ".gemini", "config", "skills", "swarm-engine"),

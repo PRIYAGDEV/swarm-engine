@@ -1,7 +1,8 @@
 /**
  * Status of an individual agent node in the swarm.
+ * Expanded to include Antigravity's native lifecycle states.
  */
-export type AgentStatus = "pending" | "running" | "completed" | "failed";
+export type AgentStatus = "pending" | "running" | "waiting" | "working" | "stopped" | "completed" | "failed" | "killed";
 /**
  * Single line diff item (green insertion or red deletion).
  */
@@ -19,6 +20,57 @@ export interface AgentAction {
     detail?: string;
     diffs?: AgentDiffItem[];
     timestamp: number;
+}
+/**
+ * Channel lifecycle operation embedded within a board control message.
+ */
+export interface BoardMessageControl {
+    op: "create" | "subscribe" | "unsubscribe" | "archive";
+    channel: string;
+    topic?: string;
+    members?: string[];
+    prev?: Record<string, string[]>;
+    next?: Record<string, string[]>;
+}
+/**
+ * Immutable sequence-numbered message logged to the shared message board.
+ */
+export interface BoardMessage {
+    /** Monotonically increasing sequence number (#1, #2, #3, ...) */
+    seq: number;
+    /** Identifier of the message author (e.g. "coordinator", "parser", "monitor", "system") */
+    from: string;
+    /** Parsed mention tokens (e.g. ["@coordinator", "@all", "@#ui", "parser"]) */
+    to?: string[];
+    /** Channel name where this message was posted (defaults to "main") */
+    channel: string;
+    /** Message text content */
+    text: string;
+    /** Epoch millisecond timestamp when the message was posted */
+    timestamp: number;
+    /** Optional channel control payload for channel management operations */
+    control?: BoardMessageControl;
+    /** Compatibility alias for from (used in Antigravity transcripts) */
+    agent?: string;
+    /** Optional ISO 8601 formatted string timestamp */
+    time?: string;
+}
+/**
+ * Metadata definition for a partitioned topic channel.
+ */
+export interface ChannelMeta {
+    /** Channel name (slug matching /^[a-z][a-z0-9-]{0,23}$/, e.g. "main", "parser", "ui") */
+    name: string;
+    /** Optional descriptive purpose or topic of the channel */
+    topic?: string;
+    /** Identifier of the agent or system that created the channel */
+    createdBy: string;
+    /** Epoch timestamp when the channel was created */
+    createdAt: number;
+    /** Whether the channel has been archived (archived channels are read-only and wake nobody) */
+    archived?: boolean;
+    /** List of agent IDs subscribed to this channel. Coordinator/narrator/monitor use ["*"] */
+    subscribers: string[];
 }
 /**
  * Represents a single agent node in the dependency execution DAG.
@@ -43,6 +95,15 @@ export interface AgentNode {
     verb?: string;
     startedAt?: number;
     completedAt?: number;
+    channels?: string[];
+    wakeMode?: "mentions" | "all" | "none";
+    waitSince?: number;
+    lastReadSeq?: number;
+    lastPostSeq?: number;
+    lastPostTime?: number;
+    parentId?: string;
+    helperIds?: string[];
+    workspace?: "inherit" | "share" | "branch";
 }
 /**
  * Global swarm state object persisted in .swarm/state.json.
@@ -57,6 +118,8 @@ export interface SwarmState {
     agents: Record<string, AgentNode>;
     blackboard: Record<string, unknown>;
     lockedFiles: Record<string, string>;
+    headSeq?: number;
+    channels?: Record<string, ChannelMeta>;
 }
 /**
  * Strips leading './' and converts '\' to '/' to ensure file paths
@@ -67,6 +130,10 @@ export declare function normalizePath(p: string): string;
  * Helper to compute the absolute path to the .swarm directory.
  */
 export declare function getSwarmDir(cwd?: string): string;
+/**
+ * Helper to compute the absolute path to .swarm/board.jsonl.
+ */
+export declare function getBoardPath(swarmDir?: string): string;
 /**
  * Removes .swarm/state.lock with retry to handle transient Windows file locks.
  */
@@ -82,7 +149,7 @@ export declare function acquireLock(swarmDir?: string, timeoutMs?: number): Prom
 export declare function initState(mission: string, maxConcurrency?: number, workerCommand?: string, swarmDir?: string, leaderModel?: string, parallel?: boolean, strictDependencies?: boolean): Promise<SwarmState>;
 /**
  * Reads the current swarm state from .swarm/state.json.
- * Throws specific error if not initialized.
+ * Automatically normalizes legacy state files for seamless backward compatibility.
  */
 export declare function readState(swarmDir?: string): Promise<SwarmState>;
 /**
@@ -104,3 +171,19 @@ export declare function updateAgentProgress(agentId: string, progress: {
     tokens?: number;
     tokPerSec?: number;
 }, swarmDir?: string): Promise<void>;
+/**
+ * Updates an agent's message board cursor tracking fields (lastReadSeq, waitSince, wakeMode, channels).
+ */
+export declare function updateAgentCursor(agentId: string, cursor: {
+    lastReadSeq?: number;
+    waitSince?: number;
+    wakeMode?: "mentions" | "all" | "none";
+    channels?: string[];
+    lastPostSeq?: number;
+    lastPostTime?: number;
+    status?: AgentStatus;
+}, swarmDir?: string): Promise<void>;
+/**
+ * Ensures a channel exists in the state metadata, creating it if not present.
+ */
+export declare function ensureChannel(name: string, topic?: string, createdBy?: string, swarmDir?: string): Promise<ChannelMeta>;
