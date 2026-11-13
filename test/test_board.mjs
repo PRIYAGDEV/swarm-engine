@@ -370,6 +370,7 @@ test('Message Board Subsystem (Features 1–5)', async (suite) => {
         const res = await client.callTool('swarm_wait', {
           memberName: 'reader',
           since: 2,
+          mentions_only: false,
           timeoutMs: 1000,
         });
 
@@ -899,6 +900,7 @@ test('Message Board Subsystem (Features 1–5)', async (suite) => {
         const res = await client.callTool('swarm_wait', {
           memberName: 'agent-neg',
           since: -5,
+          mentions_only: false,
           timeoutMs: 1000,
         });
 
@@ -968,11 +970,11 @@ test('Message Board Subsystem (Features 1–5)', async (suite) => {
         if (!(await requireToolsOrSkip(ct, client, 'swarm_wait', 'post_message'))) return;
 
         await client.callTool('post_message', { text: 'Msg Alpha', from: 'coord' });
-        const res1 = await client.callTool('swarm_wait', { since: 0, timeoutMs: 500 });
+        const res1 = await client.callTool('swarm_wait', { since: 0, mentions_only: false, timeoutMs: 500 });
         assert.equal(res1.data.messages.length, 1);
 
         await client.callTool('post_message', { text: 'Msg Beta', from: 'coord' });
-        const res2 = await client.callTool('swarm_wait', { since: 1, timeoutMs: 500 });
+        const res2 = await client.callTool('swarm_wait', { since: 1, mentions_only: false, timeoutMs: 500 });
         assert.equal(res2.data.messages.length, 1);
         assert.equal(res2.data.messages[0].text, 'Msg Beta');
       } finally {
@@ -1345,6 +1347,273 @@ test('Message Board Subsystem (Features 1–5)', async (suite) => {
         await c1?.close();
         await c2?.close();
         await cLead?.close();
+        await ws.cleanup();
+      }
+    });
+  });
+
+  // =========================================================================
+  // TIER 4: REVIEW REMEDIATION & REGRESSION SUITE (FINDINGS 1–6)
+  // =========================================================================
+
+  await suite.test('Tier 4: Review Remediation & Regression Suite', async (t) => {
+
+    // Finding 1: mentions_only defaults to true
+    await t.test('REG-01: swarm_wait defaults mentions_only to true, ignoring unmentioned chatter but waking when named', async (ct) => {
+      const ws = await createTestWorkspace();
+      let clientWait, clientPost;
+      try {
+        clientWait = await createMcpClient(ws.dir);
+        clientPost = await createMcpClient(ws.dir);
+        if (!(await requireToolsOrSkip(ct, clientWait, 'swarm_wait', 'post_message'))) return;
+
+        // 1. Wait without specifying mentions_only
+        const wait1 = clientWait.callTool('swarm_wait', {
+          memberName: 'sleeping-agent',
+          since: 0,
+          timeoutMs: 400,
+        });
+
+        await new Promise((r) => setTimeout(r, 100));
+        // Post unmentioned chatter to #main
+        await clientPost.callTool('post_message', {
+          text: 'Unrelated conversation on main channel',
+          from: 'chatterbox',
+        });
+
+        const res1 = await wait1;
+        assert.equal(res1.isError, false);
+        assert.equal(res1.data.timedOut, true, 'Default mentions_only: true must NOT wake on unmentioned chatter');
+        assert.equal(res1.data.messages.length, 0);
+
+        // 2. Wait again without specifying mentions_only, then send direct mention
+        const wait2 = clientWait.callTool('swarm_wait', {
+          memberName: 'sleeping-agent',
+          since: res1.data.headSeq,
+          timeoutMs: 3000,
+        });
+
+        await new Promise((r) => setTimeout(r, 100));
+        await clientPost.callTool('post_message', {
+          text: 'Wake up @sleeping-agent urgent assignment',
+          from: 'coordinator',
+        });
+
+        const res2 = await wait2;
+        assert.equal(res2.isError, false);
+        assert.equal(res2.data.timedOut, false, 'Direct mention must immediately wake waiting agent');
+        assert.equal(res2.data.messages.length, 1);
+        assert.ok(res2.data.messages[0].text.includes('@sleeping-agent'));
+      } finally {
+        await clientWait?.close();
+        await clientPost?.close();
+        await ws.cleanup();
+      }
+    });
+
+    // Finding 2: Agent status reverts to "working" upon swarm_wait timeout
+    await t.test('REG-02: Agent status reverts to "working" and waitSince is cleared upon swarm_wait timeout', async (ct) => {
+      const ws = await createTestWorkspace();
+      let client;
+      try {
+        client = await createMcpClient(ws.dir);
+        if (!(await requireToolsOrSkip(ct, client, 'swarm_wait', 'swarm'))) return;
+
+        // Initialize and register worker in swarm state
+        await client.callTool('swarm', { action: 'status' });
+        const statePath = path.join(ws.dir, '.swarm', 'state.json');
+        const initState = JSON.parse(await fs.readFile(statePath, 'utf8'));
+        initState.agents = initState.agents || {};
+        initState.agents['timed-agent'] = {
+          id: 'timed-agent',
+          role: 'worker',
+          status: 'working',
+        };
+        await fs.writeFile(statePath, JSON.stringify(initState, null, 2), 'utf8');
+
+        // Call swarm_wait with short timeout (200ms)
+        const res = await client.callTool('swarm_wait', {
+          memberName: 'timed-agent',
+          since: 0,
+          timeoutMs: 200,
+        });
+
+        assert.equal(res.isError, false);
+        assert.equal(res.data.timedOut, true);
+
+        // Inspect state.json on disk to verify status restoration
+        const rawState = JSON.parse(await fs.readFile(statePath, 'utf8'));
+        const ag = rawState.agents?.['timed-agent'];
+
+        assert.ok(ag, 'Agent record must exist in state.json');
+        assert.equal(ag.status, 'working', 'Agent status must revert to "working" after timeout');
+        assert.equal(ag.waitSince, undefined, 'waitSince cursor must be cleared after timeout');
+      } finally {
+        await client?.close();
+        await ws.cleanup();
+      }
+    });
+
+    // Finding 3: Torn line without trailing newline does not fuse with next post
+    await t.test('REG-03: Torn line without trailing newline does not fuse with next postMessage write', async (ct) => {
+      const ws = await createTestWorkspace();
+      let client;
+      try {
+        client = await createMcpClient(ws.dir);
+        if (!(await requireToolsOrSkip(ct, client, 'post_message', 'read_board'))) return;
+
+        // 1. Post initial valid message
+        const res1 = await client.callTool('post_message', { text: 'Pre-crash message', from: 'alice' });
+        assert.equal(res1.isError, false);
+        assert.equal(res1.data.message.seq, 1);
+
+        // 2. Simulate crash mid-write: append a partial JSON line WITHOUT newline
+        const boardPath = path.join(ws.dir, '.swarm', 'board.jsonl');
+        await fs.appendFile(boardPath, '{"seq": 2, "text": "aborted partial writ', 'utf8');
+
+        // 3. Post next valid message
+        const res2 = await client.callTool('post_message', { text: 'Post-crash valid message', from: 'bob' });
+        assert.equal(res2.isError, false);
+
+        // 4. Read board log and verify valid messages parse intact
+        const board = await client.callTool('read_board', { limit: 50 });
+        assert.equal(board.isError, false);
+
+        const texts = board.data.messages.map((m) => m.text);
+        assert.ok(texts.includes('Pre-crash message'), 'Pre-crash message must be present');
+        assert.ok(texts.includes('Post-crash valid message'), 'Post-crash message must parse intact without corruption');
+      } finally {
+        await client?.close();
+        await ws.cleanup();
+      }
+    });
+
+    // Finding 4: headSeq reseeded from disk on missing state headSeq
+    await t.test('REG-04: headSeq reseeded from disk on missing state headSeq, preserving sequence monotonicity', async (ct) => {
+      const ws = await createTestWorkspace();
+      let client;
+      try {
+        client = await createMcpClient(ws.dir);
+        if (!(await requireToolsOrSkip(ct, client, 'post_message', 'read_board'))) return;
+
+        // 1. Post two messages: seq 1 and seq 2
+        await client.callTool('post_message', { text: 'Message Alpha', from: 'worker-1' });
+        await client.callTool('post_message', { text: 'Message Beta', from: 'worker-2' });
+
+        // 2. Simulate legacy or corrupted state file by removing headSeq from state.json
+        const statePath = path.join(ws.dir, '.swarm', 'state.json');
+        const rawState = JSON.parse(await fs.readFile(statePath, 'utf8'));
+        delete rawState.headSeq;
+        await fs.writeFile(statePath, JSON.stringify(rawState, null, 2), 'utf8');
+
+        // 3. Post a third message
+        const res3 = await client.callTool('post_message', { text: 'Message Gamma', from: 'worker-3' });
+        assert.equal(res3.isError, false);
+        // Must NOT collide with 1 or 2! Must be strictly > 2 (i.e. seq 3)
+        assert.equal(res3.data.message.seq, 3, 'Post after missing headSeq must receive seq 3, not seq 1');
+
+        // 4. Verify all sequence numbers on board are strictly monotonic
+        const board = await client.callTool('read_board', { limit: 10 });
+        const seqs = board.data.messages.map((m) => m.seq);
+        assert.deepEqual(seqs, [1, 2, 3], 'All board sequences must be strictly monotonic [1, 2, 3]');
+      } finally {
+        await client?.close();
+        await ws.cleanup();
+      }
+    });
+
+    // Finding 5: timeoutMs: 0 returns existing unread messages if present
+    await t.test('REG-05: swarm_wait with timeoutMs: 0 returns existing unread messages with timedOut: false', async (ct) => {
+      const ws = await createTestWorkspace();
+      let client;
+      try {
+        client = await createMcpClient(ws.dir);
+        if (!(await requireToolsOrSkip(ct, client, 'post_message', 'swarm_wait'))) return;
+
+        // 1. Post a qualifying message mentioning @poller
+        await client.callTool('post_message', { text: 'Immediate work for @poller', from: 'lead' });
+
+        // 2. Non-blocking poll (timeoutMs: 0)
+        const res = await client.callTool('swarm_wait', {
+          memberName: 'poller',
+          since: 0,
+          timeoutMs: 0,
+        });
+
+        assert.equal(res.isError, false);
+        assert.equal(res.data.timedOut, false, 'Non-blocking poll must return timedOut: false when messages exist');
+        assert.equal(res.data.messages.length, 1);
+        assert.equal(res.data.messages[0].seq, 1);
+        assert.ok(res.data.messages[0].text.includes('@poller'));
+
+        // 3. Second non-blocking poll with cursor updated (since: 1)
+        const res2 = await client.callTool('swarm_wait', {
+          memberName: 'poller',
+          since: 1,
+          timeoutMs: 0,
+        });
+
+        assert.equal(res2.isError, false);
+        assert.equal(res2.data.timedOut, true, 'Non-blocking poll must return timedOut: true when no new messages exist');
+        assert.equal(res2.data.messages.length, 0);
+      } finally {
+        await client?.close();
+        await ws.cleanup();
+      }
+    });
+
+    // Finding 6: Deduplication of "main" channel in swarm op: "list"
+    await t.test('REG-06: swarm op: "list" returns deduplicated channel list with exactly one "main"', async (ct) => {
+      const ws = await createTestWorkspace();
+      let client;
+      try {
+        client = await createMcpClient(ws.dir);
+        if (!(await requireToolsOrSkip(ct, client, 'swarm'))) return;
+
+        // Create custom topic channels
+        await client.callTool('swarm', { action: 'channel', op: 'create', channel: 'frontend' });
+        await client.callTool('swarm', { action: 'channel', op: 'create', channel: 'backend' });
+
+        const res = await client.callTool('swarm', { action: 'channel', op: 'list' });
+        assert.equal(res.isError, false);
+
+        const channels = res.data.channels;
+        assert.ok(Array.isArray(channels));
+
+        // Filter occurrences of "main"
+        const mainOccurrences = channels.filter((c) => c.name === 'main');
+        assert.equal(mainOccurrences.length, 1, 'Channel "main" must appear exactly once in op: "list"');
+
+        const names = channels.map((c) => c.name);
+        assert.ok(names.includes('main'));
+        assert.ok(names.includes('frontend'));
+        assert.ok(names.includes('backend'));
+      } finally {
+        await client?.close();
+        await ws.cleanup();
+      }
+    });
+
+    // Finding 7 (Bonus): Channel slug validation in post_message
+    await t.test('REG-07: post_message rejects invalid channel slug, preventing illegal state channel creation', async (ct) => {
+      const ws = await createTestWorkspace();
+      let client;
+      try {
+        client = await createMcpClient(ws.dir);
+        if (!(await requireToolsOrSkip(ct, client, 'post_message'))) return;
+
+        const res = await client.callTool('post_message', {
+          text: 'Invalid channel post test',
+          channel: 'invalid slug with spaces!',
+        });
+        assert.equal(res.isError, true, 'Invalid channel slug must be rejected');
+
+        // Confirm illegal slug was not added to state.channels
+        const statePath = path.join(ws.dir, '.swarm', 'state.json');
+        const rawState = JSON.parse(await fs.readFile(statePath, 'utf8'));
+        assert.equal(rawState.channels?.['invalid slug with spaces!'], undefined);
+      } finally {
+        await client?.close();
         await ws.cleanup();
       }
     });

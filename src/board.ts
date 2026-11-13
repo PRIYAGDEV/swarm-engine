@@ -11,6 +11,7 @@ import {
   updateState,
   readState,
   initState,
+  ensureState,
   ChannelMeta,
   BoardMessage,
   BoardMessageControl,
@@ -66,8 +67,8 @@ export interface ParsedMentions {
 // ============================================================================
 
 const NAME_RUNE = /[\p{L}\p{Nd}_-]/u;
-const CHANNEL_NAME_REGEX = /^[a-z][a-z0-9-]{0,23}$/;
-const RESERVED_CHANNELS = new Set(["main", "all", "here"]);
+export const CHANNEL_NAME_REGEX = /^[a-z][a-z0-9-]{0,23}$/;
+export const RESERVED_CHANNELS = new Set(["main", "all", "here"]);
 
 export function namedToken(lowerText: string, lowerName: string): boolean {
   if (!lowerName) return false;
@@ -329,7 +330,9 @@ export async function readBoardMessages(swarmDir?: string): Promise<BoardMessage
 }
 
 export async function recoverBoardLog(swarmDir?: string): Promise<BoardMessage[]> {
-  const boardPath = getBoardPath(swarmDir);
+  const dir = swarmDir || getSwarmDir();
+  const boardPath = getBoardPath(dir);
+  const release = await acquireLock(dir);
   try {
     const raw = await fs.readFile(boardPath, "utf8");
     const valid = parseBoardLog(raw);
@@ -340,6 +343,8 @@ export async function recoverBoardLog(swarmDir?: string): Promise<BoardMessage[]
   } catch (err: any) {
     if (err.code === "ENOENT") return [];
     throw err;
+  } finally {
+    await release();
   }
 }
 
@@ -397,21 +402,22 @@ export async function postMessage(
   const boardPath = getBoardPath(dir);
   await fs.mkdir(dir, { recursive: true });
 
-  // Auto-initialize state if state.json does not exist yet
-  const statePath = path.join(dir, "state.json");
-  try {
-    await fs.access(statePath);
-  } catch {
-    await initState("Default Swarm Mission", 0, undefined, dir);
-  }
+  // Auto-initialize state cleanly if state.json does not exist yet (thread-safe double-checked lock)
+  await ensureState(dir);
 
   const release = await acquireLock(dir);
   try {
+    const statePath = path.join(dir, "state.json");
     const state = await readState(dir);
     const channel = (opts.channel || MAIN_CHANNEL).trim().toLowerCase();
 
-    // Check archived channel
+    // Validate channel name and check archived channel
     if (channel !== MAIN_CHANNEL && !opts.control) {
+      if (!CHANNEL_NAME_REGEX.test(channel) || RESERVED_CHANNELS.has(channel)) {
+        throw new Error(
+          `Invalid channel name '${channel}'. Must match ${CHANNEL_NAME_REGEX} and not be reserved.`
+        );
+      }
       if (state.channels && state.channels[channel]?.archived) {
         throw new Error(`Channel '#${channel}' is archived and read-only.`);
       }
@@ -512,15 +518,18 @@ export async function postMessage(
       }
     } else {
       // Normal post: ensure channel exists in metadata if not main
-      if (channel !== MAIN_CHANNEL && state.channels && !state.channels[channel]) {
-        state.channels[channel] = {
-          name: channel,
-          topic: "",
-          createdBy: from,
-          createdAt: now,
-          archived: false,
-          subscribers: [from],
-        };
+      if (channel !== MAIN_CHANNEL) {
+        if (!state.channels) state.channels = {};
+        if (!state.channels[channel]) {
+          state.channels[channel] = {
+            name: channel,
+            topic: "",
+            createdBy: from,
+            createdAt: now,
+            archived: false,
+            subscribers: [from],
+          };
+        }
       }
     }
 
@@ -530,8 +539,28 @@ export async function postMessage(
       state.agents[from].lastPostTime = now;
     }
 
+    // Protect against fusing into an un-terminated torn line fragment
+    let prefix = "";
+    try {
+      const handle = await fs.open(boardPath, "r");
+      try {
+        const stat = await handle.stat();
+        if (stat.size > 0) {
+          const buf = Buffer.alloc(1);
+          await handle.read(buf, 0, 1, stat.size - 1);
+          if (buf[0] !== 0x0a) {
+            prefix = "\n";
+          }
+        }
+      } finally {
+        await handle.close();
+      }
+    } catch (err: any) {
+      if (err.code !== "ENOENT") throw err;
+    }
+
     // Append to board.jsonl
-    const line = JSON.stringify(message) + "\n";
+    const line = prefix + JSON.stringify(message) + "\n";
     await fs.appendFile(boardPath, line, "utf8");
 
     // Write state atomically with retry
@@ -564,7 +593,7 @@ export async function postMessage(
 }
 
 export async function readBoard(
-  stateOrDir: SwarmState | string,
+  stateOrDir?: SwarmState | string,
   swarmDirOrOpts?: string | ReadBoardOptions,
   maybeOpts?: ReadBoardOptions
 ): Promise<{
@@ -578,10 +607,22 @@ export async function readBoard(
   let dir: string = getSwarmDir();
   let opts: ReadBoardOptions = {};
 
-  if (typeof stateOrDir === "string") {
-    dir = stateOrDir;
-    opts = (swarmDirOrOpts as ReadBoardOptions) || {};
-  } else if (stateOrDir && typeof stateOrDir === "object" && "mission" in stateOrDir) {
+  if (!stateOrDir) {
+    if (typeof swarmDirOrOpts === "string") {
+      dir = swarmDirOrOpts;
+      opts = maybeOpts || {};
+    } else {
+      opts = (swarmDirOrOpts as ReadBoardOptions) || {};
+    }
+  } else if (typeof stateOrDir === "string") {
+    if (typeof swarmDirOrOpts === "string") {
+      dir = swarmDirOrOpts;
+      opts = maybeOpts || {};
+    } else {
+      dir = stateOrDir;
+      opts = (swarmDirOrOpts as ReadBoardOptions) || {};
+    }
+  } else if (typeof stateOrDir === "object" && "mission" in stateOrDir) {
     state = stateOrDir as SwarmState;
     if (typeof swarmDirOrOpts === "string") {
       dir = swarmDirOrOpts;
@@ -681,27 +722,39 @@ export async function readBoard(
 }
 
 export async function swarmWait(
-  stateOrDir: SwarmState | string,
-  swarmDirOrOpts: string | SwarmWaitOptions,
+  stateOrDir?: SwarmState | string,
+  swarmDirOrOpts?: string | SwarmWaitOptions,
   maybeOpts?: SwarmWaitOptions
 ): Promise<{ messages: BoardMessage[]; headSeq: number; timedOut: boolean }> {
   let state: SwarmState | undefined;
   let dir: string = getSwarmDir();
-  let opts: SwarmWaitOptions;
+  let opts: SwarmWaitOptions = {};
 
-  if (typeof stateOrDir === "string") {
-    dir = stateOrDir;
-    opts = swarmDirOrOpts as SwarmWaitOptions;
-  } else if (stateOrDir && typeof stateOrDir === "object" && "mission" in stateOrDir) {
+  if (!stateOrDir) {
+    if (typeof swarmDirOrOpts === "string") {
+      dir = swarmDirOrOpts;
+      opts = maybeOpts || {};
+    } else {
+      opts = (swarmDirOrOpts as SwarmWaitOptions) || {};
+    }
+  } else if (typeof stateOrDir === "string") {
+    if (typeof swarmDirOrOpts === "string") {
+      dir = swarmDirOrOpts;
+      opts = maybeOpts || {};
+    } else {
+      dir = stateOrDir;
+      opts = (swarmDirOrOpts as SwarmWaitOptions) || {};
+    }
+  } else if (typeof stateOrDir === "object" && "mission" in stateOrDir) {
     state = stateOrDir as SwarmState;
     if (typeof swarmDirOrOpts === "string") {
       dir = swarmDirOrOpts;
-      opts = maybeOpts || (swarmDirOrOpts as SwarmWaitOptions);
+      opts = maybeOpts || {};
     } else {
-      opts = swarmDirOrOpts as SwarmWaitOptions;
+      opts = (swarmDirOrOpts as SwarmWaitOptions) || {};
     }
   } else {
-    opts = stateOrDir as SwarmWaitOptions;
+    opts = (stateOrDir as SwarmWaitOptions) || {};
   }
 
   if (!state) {
@@ -718,20 +771,8 @@ export async function swarmWait(
     ? String((opts as any).channel).toLowerCase()
     : undefined;
   const mentionsOnly =
-    opts.mentionsOnly === true || opts.mentions_only === true;
+    opts.mentionsOnly !== false && opts.mentions_only !== false;
   const rawTimeout = opts.timeoutMs !== undefined ? opts.timeoutMs : 30000;
-
-  // Immediate return if timeout <= 0
-  if (rawTimeout <= 0) {
-    const existing = await readBoardMessages(dir);
-    const headSeq =
-      existing.length > 0 ? existing[existing.length - 1].seq : state.headSeq || 0;
-    return {
-      messages: [],
-      headSeq,
-      timedOut: true,
-    };
-  }
 
   const channels = getMemberChannels(state, memberName, channelFilter);
 
@@ -764,6 +805,15 @@ export async function swarmWait(
       messages: matching,
       headSeq,
       timedOut: false,
+    };
+  }
+
+  // Immediate return if timeout <= 0 and no unread matching messages exist
+  if (rawTimeout <= 0) {
+    return {
+      messages: [],
+      headSeq,
+      timedOut: true,
     };
   }
 
@@ -852,7 +902,7 @@ export async function swarmWait(
 
     // Timeout
     timer = setTimeout(async () => {
-      await cleanup(false);
+      await cleanup(true);
       const currentMsgs = await readBoardMessages(dir);
       const latestHead =
         currentMsgs.length > 0 ? currentMsgs[currentMsgs.length - 1].seq : headSeq;

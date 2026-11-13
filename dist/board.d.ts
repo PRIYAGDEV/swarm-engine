@@ -33,6 +33,8 @@ export interface ParsedMentions {
     channels: string[];
     isAll: boolean;
 }
+export declare const CHANNEL_NAME_REGEX: RegExp;
+export declare const RESERVED_CHANNELS: Set<string>;
 export declare function namedToken(lowerText: string, lowerName: string): boolean;
 export declare function named(lowerText: string, lowerName: string): boolean;
 export declare function channelMentions(text: string): string[];
@@ -55,14 +57,14 @@ export declare class BoardEventBus extends EventEmitter {
 }
 export declare const boardEventBus: BoardEventBus;
 export declare function postMessage(stateOrDir: SwarmState | string, swarmDirOrOpts: string | PostMessageOptions, maybeOpts?: PostMessageOptions): Promise<BoardMessage>;
-export declare function readBoard(stateOrDir: SwarmState | string, swarmDirOrOpts?: string | ReadBoardOptions, maybeOpts?: ReadBoardOptions): Promise<{
+export declare function readBoard(stateOrDir?: SwarmState | string, swarmDirOrOpts?: string | ReadBoardOptions, maybeOpts?: ReadBoardOptions): Promise<{
     messages: BoardMessage[];
     headSeq: number;
     members?: Record<string, any>;
     roster?: Record<string, any>;
     channels?: ChannelMeta[];
 }>;
-export declare function swarmWait(stateOrDir: SwarmState | string, swarmDirOrOpts: string | SwarmWaitOptions, maybeOpts?: SwarmWaitOptions): Promise<{
+export declare function swarmWait(stateOrDir?: SwarmState | string, swarmDirOrOpts?: string | SwarmWaitOptions, maybeOpts?: SwarmWaitOptions): Promise<{
     messages: BoardMessage[];
     headSeq: number;
     timedOut: boolean;

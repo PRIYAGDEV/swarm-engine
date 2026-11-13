@@ -3,7 +3,7 @@ import fsSync from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
-import { getSwarmDir, getBoardPath as getStateBoardPath, acquireLock, updateState, readState, initState, } from "./state.js";
+import { getSwarmDir, getBoardPath as getStateBoardPath, acquireLock, updateState, readState, initState, ensureState, } from "./state.js";
 // ============================================================================
 // Constants and Interfaces
 // ============================================================================
@@ -13,8 +13,8 @@ export const ALL_CHANNELS = "*";
 // Mention & Doorbell Parsing Engine
 // ============================================================================
 const NAME_RUNE = /[\p{L}\p{Nd}_-]/u;
-const CHANNEL_NAME_REGEX = /^[a-z][a-z0-9-]{0,23}$/;
-const RESERVED_CHANNELS = new Set(["main", "all", "here"]);
+export const CHANNEL_NAME_REGEX = /^[a-z][a-z0-9-]{0,23}$/;
+export const RESERVED_CHANNELS = new Set(["main", "all", "here"]);
 export function namedToken(lowerText, lowerName) {
     if (!lowerName)
         return false;
@@ -242,7 +242,9 @@ export async function readBoardMessages(swarmDir) {
     }
 }
 export async function recoverBoardLog(swarmDir) {
-    const boardPath = getBoardPath(swarmDir);
+    const dir = swarmDir || getSwarmDir();
+    const boardPath = getBoardPath(dir);
+    const release = await acquireLock(dir);
     try {
         const raw = await fs.readFile(boardPath, "utf8");
         const valid = parseBoardLog(raw);
@@ -254,6 +256,9 @@ export async function recoverBoardLog(swarmDir) {
         if (err.code === "ENOENT")
             return [];
         throw err;
+    }
+    finally {
+        await release();
     }
 }
 // ============================================================================
@@ -300,20 +305,18 @@ export async function postMessage(stateOrDir, swarmDirOrOpts, maybeOpts) {
     }
     const boardPath = getBoardPath(dir);
     await fs.mkdir(dir, { recursive: true });
-    // Auto-initialize state if state.json does not exist yet
-    const statePath = path.join(dir, "state.json");
-    try {
-        await fs.access(statePath);
-    }
-    catch {
-        await initState("Default Swarm Mission", 0, undefined, dir);
-    }
+    // Auto-initialize state cleanly if state.json does not exist yet (thread-safe double-checked lock)
+    await ensureState(dir);
     const release = await acquireLock(dir);
     try {
+        const statePath = path.join(dir, "state.json");
         const state = await readState(dir);
         const channel = (opts.channel || MAIN_CHANNEL).trim().toLowerCase();
-        // Check archived channel
+        // Validate channel name and check archived channel
         if (channel !== MAIN_CHANNEL && !opts.control) {
+            if (!CHANNEL_NAME_REGEX.test(channel) || RESERVED_CHANNELS.has(channel)) {
+                throw new Error(`Invalid channel name '${channel}'. Must match ${CHANNEL_NAME_REGEX} and not be reserved.`);
+            }
             if (state.channels && state.channels[channel]?.archived) {
                 throw new Error(`Channel '#${channel}' is archived and read-only.`);
             }
@@ -413,15 +416,19 @@ export async function postMessage(stateOrDir, swarmDirOrOpts, maybeOpts) {
         }
         else {
             // Normal post: ensure channel exists in metadata if not main
-            if (channel !== MAIN_CHANNEL && state.channels && !state.channels[channel]) {
-                state.channels[channel] = {
-                    name: channel,
-                    topic: "",
-                    createdBy: from,
-                    createdAt: now,
-                    archived: false,
-                    subscribers: [from],
-                };
+            if (channel !== MAIN_CHANNEL) {
+                if (!state.channels)
+                    state.channels = {};
+                if (!state.channels[channel]) {
+                    state.channels[channel] = {
+                        name: channel,
+                        topic: "",
+                        createdBy: from,
+                        createdAt: now,
+                        archived: false,
+                        subscribers: [from],
+                    };
+                }
             }
         }
         // Update agent's cursor
@@ -429,8 +436,30 @@ export async function postMessage(stateOrDir, swarmDirOrOpts, maybeOpts) {
             state.agents[from].lastPostSeq = seq;
             state.agents[from].lastPostTime = now;
         }
+        // Protect against fusing into an un-terminated torn line fragment
+        let prefix = "";
+        try {
+            const handle = await fs.open(boardPath, "r");
+            try {
+                const stat = await handle.stat();
+                if (stat.size > 0) {
+                    const buf = Buffer.alloc(1);
+                    await handle.read(buf, 0, 1, stat.size - 1);
+                    if (buf[0] !== 0x0a) {
+                        prefix = "\n";
+                    }
+                }
+            }
+            finally {
+                await handle.close();
+            }
+        }
+        catch (err) {
+            if (err.code !== "ENOENT")
+                throw err;
+        }
         // Append to board.jsonl
-        const line = JSON.stringify(message) + "\n";
+        const line = prefix + JSON.stringify(message) + "\n";
         await fs.appendFile(boardPath, line, "utf8");
         // Write state atomically with retry
         const tmpId = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
@@ -463,11 +492,26 @@ export async function readBoard(stateOrDir, swarmDirOrOpts, maybeOpts) {
     let state;
     let dir = getSwarmDir();
     let opts = {};
-    if (typeof stateOrDir === "string") {
-        dir = stateOrDir;
-        opts = swarmDirOrOpts || {};
+    if (!stateOrDir) {
+        if (typeof swarmDirOrOpts === "string") {
+            dir = swarmDirOrOpts;
+            opts = maybeOpts || {};
+        }
+        else {
+            opts = swarmDirOrOpts || {};
+        }
     }
-    else if (stateOrDir && typeof stateOrDir === "object" && "mission" in stateOrDir) {
+    else if (typeof stateOrDir === "string") {
+        if (typeof swarmDirOrOpts === "string") {
+            dir = swarmDirOrOpts;
+            opts = maybeOpts || {};
+        }
+        else {
+            dir = stateOrDir;
+            opts = swarmDirOrOpts || {};
+        }
+    }
+    else if (typeof stateOrDir === "object" && "mission" in stateOrDir) {
         state = stateOrDir;
         if (typeof swarmDirOrOpts === "string") {
             dir = swarmDirOrOpts;
@@ -556,23 +600,38 @@ export async function readBoard(stateOrDir, swarmDirOrOpts, maybeOpts) {
 export async function swarmWait(stateOrDir, swarmDirOrOpts, maybeOpts) {
     let state;
     let dir = getSwarmDir();
-    let opts;
-    if (typeof stateOrDir === "string") {
-        dir = stateOrDir;
-        opts = swarmDirOrOpts;
+    let opts = {};
+    if (!stateOrDir) {
+        if (typeof swarmDirOrOpts === "string") {
+            dir = swarmDirOrOpts;
+            opts = maybeOpts || {};
+        }
+        else {
+            opts = swarmDirOrOpts || {};
+        }
     }
-    else if (stateOrDir && typeof stateOrDir === "object" && "mission" in stateOrDir) {
+    else if (typeof stateOrDir === "string") {
+        if (typeof swarmDirOrOpts === "string") {
+            dir = swarmDirOrOpts;
+            opts = maybeOpts || {};
+        }
+        else {
+            dir = stateOrDir;
+            opts = swarmDirOrOpts || {};
+        }
+    }
+    else if (typeof stateOrDir === "object" && "mission" in stateOrDir) {
         state = stateOrDir;
         if (typeof swarmDirOrOpts === "string") {
             dir = swarmDirOrOpts;
-            opts = maybeOpts || swarmDirOrOpts;
+            opts = maybeOpts || {};
         }
         else {
-            opts = swarmDirOrOpts;
+            opts = swarmDirOrOpts || {};
         }
     }
     else {
-        opts = stateOrDir;
+        opts = stateOrDir || {};
     }
     if (!state) {
         try {
@@ -587,18 +646,8 @@ export async function swarmWait(stateOrDir, swarmDirOrOpts, maybeOpts) {
     const channelFilter = opts.channel
         ? String(opts.channel).toLowerCase()
         : undefined;
-    const mentionsOnly = opts.mentionsOnly === true || opts.mentions_only === true;
+    const mentionsOnly = opts.mentionsOnly !== false && opts.mentions_only !== false;
     const rawTimeout = opts.timeoutMs !== undefined ? opts.timeoutMs : 30000;
-    // Immediate return if timeout <= 0
-    if (rawTimeout <= 0) {
-        const existing = await readBoardMessages(dir);
-        const headSeq = existing.length > 0 ? existing[existing.length - 1].seq : state.headSeq || 0;
-        return {
-            messages: [],
-            headSeq,
-            timedOut: true,
-        };
-    }
     const channels = getMemberChannels(state, memberName, channelFilter);
     const isActive = (c) => {
         const meta = state?.channels?.[c];
@@ -626,6 +675,14 @@ export async function swarmWait(stateOrDir, swarmDirOrOpts, maybeOpts) {
             messages: matching,
             headSeq,
             timedOut: false,
+        };
+    }
+    // Immediate return if timeout <= 0 and no unread matching messages exist
+    if (rawTimeout <= 0) {
+        return {
+            messages: [],
+            headSeq,
+            timedOut: true,
         };
     }
     // 2. Mark agent parked in state
@@ -715,7 +772,7 @@ export async function swarmWait(stateOrDir, swarmDirOrOpts, maybeOpts) {
         }, 25);
         // Timeout
         timer = setTimeout(async () => {
-            await cleanup(false);
+            await cleanup(true);
             const currentMsgs = await readBoardMessages(dir);
             const latestHead = currentMsgs.length > 0 ? currentMsgs[currentMsgs.length - 1].seq : headSeq;
             resolve({

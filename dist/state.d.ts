@@ -135,6 +135,11 @@ export declare function getSwarmDir(cwd?: string): string;
  */
 export declare function getBoardPath(swarmDir?: string): string;
 /**
+ * Scans .swarm/board.jsonl to find the highest message sequence number.
+ * Safely handles missing files, empty files, and torn JSON lines.
+ */
+export declare function getHighestSeqFromBoard(swarmDir?: string): Promise<number>;
+/**
  * Removes .swarm/state.lock with retry to handle transient Windows file locks.
  */
 export declare function releaseLock(swarmDir?: string): Promise<void>;
@@ -147,6 +152,11 @@ export declare function acquireLock(swarmDir?: string, timeoutMs?: number): Prom
  * Initializes the swarm state and persists it to .swarm/state.json.
  */
 export declare function initState(mission: string, maxConcurrency?: number, workerCommand?: string, swarmDir?: string, leaderModel?: string, parallel?: boolean, strictDependencies?: boolean): Promise<SwarmState>;
+/**
+ * Ensures swarm state is initialized, using double-checked locking to prevent
+ * concurrency races when multiple uninitialized callers arrive simultaneously.
+ */
+export declare function ensureState(swarmDir?: string): Promise<SwarmState>;
 /**
  * Reads the current swarm state from .swarm/state.json.
  * Automatically normalizes legacy state files for seamless backward compatibility.
@@ -187,3 +197,18 @@ export declare function updateAgentCursor(agentId: string, cursor: {
  * Ensures a channel exists in the state metadata, creating it if not present.
  */
 export declare function ensureChannel(name: string, topic?: string, createdBy?: string, swarmDir?: string): Promise<ChannelMeta>;
+export interface ChannelSummary {
+    name: string;
+    channel: string;
+    topic: string;
+    createdBy: string;
+    createdAt: number;
+    archived: boolean;
+    subscriberCount: number;
+    subscribers: string[];
+}
+/**
+ * Returns a deduplicated list of channel summaries for display or MCP tool output.
+ * Ensures 'main' is always present at index 0 and no channel is duplicated.
+ */
+export declare function getDeduplicatedChannelList(state: SwarmState): ChannelSummary[];

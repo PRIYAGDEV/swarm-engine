@@ -29,6 +29,40 @@ export function getBoardPath(swarmDir) {
     return path.join(swarmDir || getSwarmDir(), "board.jsonl");
 }
 /**
+ * Scans .swarm/board.jsonl to find the highest message sequence number.
+ * Safely handles missing files, empty files, and torn JSON lines.
+ */
+export async function getHighestSeqFromBoard(swarmDir) {
+    const boardPath = getBoardPath(swarmDir);
+    try {
+        const content = await fs.readFile(boardPath, "utf8");
+        let maxSeq = 0;
+        const lines = content.split("\n");
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed)
+                continue;
+            try {
+                const obj = JSON.parse(trimmed);
+                if (obj &&
+                    typeof obj === "object" &&
+                    typeof obj.seq === "number" &&
+                    !isNaN(obj.seq) &&
+                    obj.seq > maxSeq) {
+                    maxSeq = obj.seq;
+                }
+            }
+            catch {
+                // Skip torn lines or invalid JSON fragments
+            }
+        }
+        return maxSeq;
+    }
+    catch {
+        return 0;
+    }
+}
+/**
  * Removes .swarm/state.lock with retry to handle transient Windows file locks.
  */
 export async function releaseLock(swarmDir) {
@@ -160,6 +194,7 @@ export async function initState(mission, maxConcurrency = 0, workerCommand, swar
     await fs.mkdir(dir, { recursive: true });
     const detected = detectActiveModelsSync(path.dirname(dir));
     const now = Date.now();
+    const maxSeq = await getHighestSeqFromBoard(dir);
     const initialState = {
         mission,
         leaderModel: leaderModel || detected.leaderModel || undefined,
@@ -170,7 +205,7 @@ export async function initState(mission, maxConcurrency = 0, workerCommand, swar
         agents: {},
         blackboard: {},
         lockedFiles: {},
-        headSeq: 0,
+        headSeq: maxSeq,
         channels: {
             main: {
                 name: "main",
@@ -201,13 +236,88 @@ export async function initState(mission, maxConcurrency = 0, workerCommand, swar
                 await new Promise((r) => setTimeout(r, 20 * (attempt + 1)));
             }
         }
-        // Ensure board.jsonl is initialized cleanly alongside state.json
+        // Ensure board.jsonl exists cleanly without truncating existing content
         const boardPath = path.join(dir, "board.jsonl");
-        await fs.writeFile(boardPath, "", "utf8");
+        try {
+            await fs.access(boardPath);
+        }
+        catch {
+            await fs.writeFile(boardPath, "", "utf8");
+        }
         return initialState;
     }
     finally {
         await releaseLock(dir);
+    }
+}
+/**
+ * Ensures swarm state is initialized, using double-checked locking to prevent
+ * concurrency races when multiple uninitialized callers arrive simultaneously.
+ */
+export async function ensureState(swarmDir) {
+    const dir = swarmDir || getSwarmDir();
+    try {
+        return await readState(dir);
+    }
+    catch {
+        await acquireLock(dir);
+        try {
+            try {
+                return await readState(dir);
+            }
+            catch {
+                const detected = detectActiveModelsSync(path.dirname(dir));
+                const now = Date.now();
+                const maxSeq = await getHighestSeqFromBoard(dir);
+                const initialState = {
+                    mission: "Default Swarm Mission",
+                    leaderModel: detected.leaderModel || undefined,
+                    maxConcurrency: 0,
+                    parallel: true,
+                    strictDependencies: false,
+                    agents: {},
+                    blackboard: {},
+                    lockedFiles: {},
+                    headSeq: maxSeq,
+                    channels: {
+                        main: {
+                            name: "main",
+                            topic: "Default swarm coordination channel",
+                            createdBy: "system",
+                            createdAt: now,
+                            archived: false,
+                            subscribers: ["*"],
+                        },
+                    },
+                };
+                const statePath = path.join(dir, "state.json");
+                const tmpId = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
+                const tmpPath = path.join(dir, `state.json.tmp.${tmpId}`);
+                await fs.writeFile(tmpPath, JSON.stringify(initialState, null, 2), "utf8");
+                for (let attempt = 0; attempt < 5; attempt++) {
+                    try {
+                        await fs.rename(tmpPath, statePath);
+                        break;
+                    }
+                    catch (renameErr) {
+                        if (attempt === 4)
+                            throw renameErr;
+                        await new Promise((r) => setTimeout(r, 20 * (attempt + 1)));
+                    }
+                }
+                const boardPath = path.join(dir, "board.jsonl");
+                try {
+                    await fs.access(boardPath);
+                }
+                catch {
+                    await fs.writeFile(boardPath, "", "utf8");
+                }
+                return initialState;
+            }
+        }
+        finally {
+            await releaseLock(dir);
+        }
     }
 }
 /**
@@ -221,8 +331,10 @@ export async function readState(swarmDir) {
         const content = await fs.readFile(statePath, "utf8");
         const state = JSON.parse(content);
         // --- Automatic Backward-Compatibility Migration ---
-        if (typeof state.headSeq !== "number") {
-            state.headSeq = 0;
+        // Reseed headSeq from board.jsonl if missing or 0 to prevent sequence collisions
+        if (typeof state.headSeq !== "number" || isNaN(state.headSeq) || state.headSeq <= 0) {
+            const maxSeq = await getHighestSeqFromBoard(dir);
+            state.headSeq = Math.max(state.headSeq || 0, maxSeq);
         }
         if (!state.channels || typeof state.channels !== "object") {
             state.channels = {
@@ -235,6 +347,47 @@ export async function readState(swarmDir) {
                     subscribers: ["*"],
                 },
             };
+        }
+        else {
+            // Deduplicate channel dictionary keys and normalize case variations
+            const normalizedChannels = {};
+            for (const [rawKey, meta] of Object.entries(state.channels)) {
+                if (!meta || typeof meta !== "object")
+                    continue;
+                const normKey = (meta.name || rawKey).trim().toLowerCase();
+                if (!normKey)
+                    continue;
+                const subscribers = Array.isArray(meta.subscribers)
+                    ? Array.from(new Set(meta.subscribers.map((s) => String(s).trim())))
+                    : [];
+                if (!normalizedChannels[normKey]) {
+                    normalizedChannels[normKey] = {
+                        name: normKey,
+                        topic: meta.topic || "",
+                        createdBy: meta.createdBy || "system",
+                        createdAt: typeof meta.createdAt === "number" ? meta.createdAt : Date.now(),
+                        archived: Boolean(meta.archived),
+                        subscribers,
+                    };
+                }
+                else {
+                    const existing = normalizedChannels[normKey];
+                    existing.subscribers = Array.from(new Set([...existing.subscribers, ...subscribers]));
+                    if (!existing.topic && meta.topic)
+                        existing.topic = meta.topic;
+                }
+            }
+            if (!normalizedChannels["main"]) {
+                normalizedChannels["main"] = {
+                    name: "main",
+                    topic: "Default swarm coordination channel",
+                    createdBy: "system",
+                    createdAt: Date.now(),
+                    archived: false,
+                    subscribers: ["*"],
+                };
+            }
+            state.channels = normalizedChannels;
         }
         if (!state.blackboard || typeof state.blackboard !== "object") {
             state.blackboard = {};
@@ -249,6 +402,15 @@ export async function readState(swarmDir) {
         for (const agent of Object.values(state.agents)) {
             if (!agent.channels || !Array.isArray(agent.channels)) {
                 agent.channels = ["main"];
+            }
+            else {
+                const uniqueChannels = Array.from(new Set(agent.channels
+                    .filter((c) => typeof c === "string" && c.trim().length > 0)
+                    .map((c) => c.trim().toLowerCase())));
+                if (!uniqueChannels.includes("main")) {
+                    uniqueChannels.unshift("main");
+                }
+                agent.channels = uniqueChannels;
             }
             if (!agent.wakeMode) {
                 agent.wakeMode = "mentions";
@@ -371,18 +533,56 @@ export async function ensureChannel(name, topic, createdBy = "system", swarmDir)
     return await updateState((state) => {
         if (!state.channels)
             state.channels = {};
-        if (state.channels[name]) {
-            return state.channels[name];
+        const normName = name.trim().toLowerCase();
+        if (state.channels[normName]) {
+            return state.channels[normName];
         }
         const meta = {
-            name,
+            name: normName,
             topic,
             createdBy,
             createdAt: Date.now(),
             archived: false,
             subscribers: [createdBy],
         };
-        state.channels[name] = meta;
+        state.channels[normName] = meta;
         return meta;
     }, dir);
+}
+/**
+ * Returns a deduplicated list of channel summaries for display or MCP tool output.
+ * Ensures 'main' is always present at index 0 and no channel is duplicated.
+ */
+export function getDeduplicatedChannelList(state) {
+    const seen = new Set();
+    const list = [];
+    const mainMeta = state.channels?.["main"];
+    list.push({
+        name: "main",
+        channel: "main",
+        topic: mainMeta?.topic || "Universal swarm coordination channel",
+        createdBy: mainMeta?.createdBy || "system",
+        createdAt: mainMeta?.createdAt || 0,
+        archived: Boolean(mainMeta?.archived),
+        subscriberCount: Object.keys(state.agents || {}).length + 1,
+        subscribers: ["coordinator", ...Object.keys(state.agents || {})],
+    });
+    seen.add("main");
+    for (const c of Object.values(state.channels || {})) {
+        const norm = (c.name || "").trim().toLowerCase();
+        if (!norm || seen.has(norm))
+            continue;
+        seen.add(norm);
+        list.push({
+            name: norm,
+            channel: norm,
+            topic: c.topic || "",
+            createdBy: c.createdBy,
+            createdAt: c.createdAt,
+            archived: Boolean(c.archived),
+            subscriberCount: (c.subscribers || []).length,
+            subscribers: c.subscribers || [],
+        });
+    }
+    return list;
 }

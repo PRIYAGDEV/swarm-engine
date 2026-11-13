@@ -4,8 +4,8 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { initState, readState, updateState, recordAgentAction, updateAgentProgress, normalizePath, getSwarmDir, } from "./state.js";
-import { postMessage, readBoard, swarmWait, MAIN_CHANNEL, } from "./board.js";
+import { initState, readState, ensureState, updateState, recordAgentAction, updateAgentProgress, normalizePath, getSwarmDir, getDeduplicatedChannelList, } from "./state.js";
+import { postMessage, readBoard, swarmWait, MAIN_CHANNEL, CHANNEL_NAME_REGEX, RESERVED_CHANNELS, } from "./board.js";
 import { tickScheduler, mergeAndComplete, generateAgentTaskContent, } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
 import { renderDashboard } from "./tui.js";
@@ -659,13 +659,7 @@ export function createMcpServer() {
             .describe("Optional sender identity. Defaults to 'coordinator' or detected active agent from environment."),
     }, async ({ text, channel, from }) => {
         try {
-            let state;
-            try {
-                state = await readState();
-            }
-            catch {
-                state = await initState("Default Swarm Mission", 0, undefined, getSwarmDir());
-            }
+            const state = await ensureState(getSwarmDir());
             if (!text || typeof text !== "string" || text.trim() === "") {
                 return {
                     isError: true,
@@ -673,16 +667,29 @@ export function createMcpServer() {
                 };
             }
             const targetChannel = (channel || MAIN_CHANNEL).trim().toLowerCase();
-            if (targetChannel !== MAIN_CHANNEL && state.channels?.[targetChannel]?.archived) {
-                return {
-                    isError: true,
-                    content: [
-                        {
-                            type: "text",
-                            text: `Error: Channel '#${targetChannel}' is archived and read-only.`,
-                        },
-                    ],
-                };
+            if (targetChannel !== MAIN_CHANNEL) {
+                if (!CHANNEL_NAME_REGEX.test(targetChannel) || RESERVED_CHANNELS.has(targetChannel)) {
+                    return {
+                        isError: true,
+                        content: [
+                            {
+                                type: "text",
+                                text: `Error: Invalid channel name '${targetChannel}'. Must match ${CHANNEL_NAME_REGEX} and not be reserved.`,
+                            },
+                        ],
+                    };
+                }
+                if (state.channels?.[targetChannel]?.archived) {
+                    return {
+                        isError: true,
+                        content: [
+                            {
+                                type: "text",
+                                text: `Error: Channel '#${targetChannel}' is archived and read-only.`,
+                            },
+                        ],
+                    };
+                }
             }
             const sender = from || process.env.SWARM_AGENT_ID || "coordinator";
             const message = await postMessage(state, getSwarmDir(), {
@@ -760,7 +767,7 @@ export function createMcpServer() {
             const effectiveSince = since !== undefined && since > 0 ? since : 0;
             const effectiveLimit = limit !== undefined ? limit : 200;
             const effectiveMember = memberName || member || process.env.SWARM_AGENT_ID || "coordinator";
-            const result = await readBoard(state || getSwarmDir(), getSwarmDir(), {
+            const result = await readBoard(state, getSwarmDir(), {
                 since: effectiveSince,
                 channel: channel ? channel.trim().toLowerCase() : undefined,
                 limit: effectiveLimit,
@@ -824,20 +831,11 @@ export function createMcpServer() {
             .describe("Optional channel name to filter messages while waiting."),
     }, async ({ since, mentions_only, timeoutMs, member, memberName, channel }) => {
         try {
-            let state;
-            try {
-                state = await readState();
-            }
-            catch {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "Error: Swarm not initialized" }],
-                };
-            }
+            const state = await ensureState(getSwarmDir());
             const effectiveMember = memberName || member || process.env.SWARM_AGENT_ID || "coordinator";
             const result = await swarmWait(state, getSwarmDir(), {
                 memberName: effectiveMember,
-                since: since !== undefined && since > 0 ? since : 0,
+                since: since !== undefined ? since : 0,
                 channel: channel ? channel.trim().toLowerCase() : undefined,
                 mentionsOnly: mentions_only !== false,
                 timeoutMs,
@@ -896,16 +894,7 @@ export function createMcpServer() {
             .describe("Optional caller identity (defaults to 'coordinator' or detected agent)"),
     }, async ({ action, op, channel, topic, members, name, caller }) => {
         try {
-            let state;
-            try {
-                state = await readState();
-            }
-            catch {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "Error: Swarm not initialized" }],
-                };
-            }
+            const state = await ensureState(getSwarmDir());
             const effectiveCaller = caller || process.env.SWARM_AGENT_ID || "coordinator";
             if (action === "status") {
                 const agentsList = Object.values(state.agents || {});
@@ -949,28 +938,7 @@ export function createMcpServer() {
             }
             const swarmDir = getSwarmDir();
             if (op === "list") {
-                const channelList = [
-                    {
-                        name: MAIN_CHANNEL,
-                        channel: MAIN_CHANNEL,
-                        topic: "Universal swarm coordination channel",
-                        createdBy: "system",
-                        createdAt: 0,
-                        archived: false,
-                        subscriberCount: Object.keys(state.agents || {}).length + 1,
-                        subscribers: ["coordinator", ...Object.keys(state.agents || {})],
-                    },
-                    ...Object.values(state.channels || {}).map((c) => ({
-                        name: c.name,
-                        channel: c.name,
-                        topic: c.topic || "",
-                        createdBy: c.createdBy,
-                        createdAt: c.createdAt,
-                        archived: Boolean(c.archived),
-                        subscriberCount: (c.subscribers || []).length,
-                        subscribers: c.subscribers || [],
-                    })),
-                ];
+                const channelList = getDeduplicatedChannelList(state);
                 return {
                     content: [
                         {
