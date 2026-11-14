@@ -18,6 +18,7 @@ import {
   terminateAgent,
   modelHotSwap,
   canTerminateAgent,
+  isTerminalStatus,
   AgentNode,
   SwarmState,
 } from "./state.js";
@@ -1370,10 +1371,10 @@ export function createMcpServer(): McpServer {
               content: [{ type: "text", text: `Error: Agent '${targetName}' not found.` }],
             };
           }
-          if (targetAgent.status === "killed" || targetAgent.killed === true) {
+          if (isTerminalStatus(targetAgent.status) || targetAgent.killed === true) {
             return {
               isError: true,
-              content: [{ type: "text", text: `Error: Cannot switch model of killed agent '${targetName}'.` }],
+              content: [{ type: "text", text: `Error: Cannot switch model of terminal agent '${targetName}' (status: ${targetAgent.status}).` }],
             };
           }
 

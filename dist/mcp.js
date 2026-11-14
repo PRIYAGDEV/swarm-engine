@@ -4,7 +4,7 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { initState, readState, ensureState, updateState, recordAgentAction, updateAgentProgress, normalizePath, getSwarmDir, getDeduplicatedChannelList, getSwarmStatusSummary, terminateAgent, modelHotSwap, canTerminateAgent, } from "./state.js";
+import { initState, readState, ensureState, updateState, recordAgentAction, updateAgentProgress, normalizePath, getSwarmDir, getDeduplicatedChannelList, getSwarmStatusSummary, terminateAgent, modelHotSwap, canTerminateAgent, isTerminalStatus, } from "./state.js";
 import { postMessage, readBoard, swarmWait, MAIN_CHANNEL, CHANNEL_NAME_REGEX, RESERVED_CHANNELS, } from "./board.js";
 import { tickScheduler, mergeAndComplete, generateAgentTaskContent, } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
@@ -1153,10 +1153,10 @@ export function createMcpServer() {
                         content: [{ type: "text", text: `Error: Agent '${targetName}' not found.` }],
                     };
                 }
-                if (targetAgent.status === "killed" || targetAgent.killed === true) {
+                if (isTerminalStatus(targetAgent.status) || targetAgent.killed === true) {
                     return {
                         isError: true,
-                        content: [{ type: "text", text: `Error: Cannot switch model of killed agent '${targetName}'.` }],
+                        content: [{ type: "text", text: `Error: Cannot switch model of terminal agent '${targetName}' (status: ${targetAgent.status}).` }],
                     };
                 }
                 const updated = await modelHotSwap(targetName, targetModel, swarmDir);
