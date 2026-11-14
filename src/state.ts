@@ -190,6 +190,7 @@ export interface AgentNode {
   helperIds?: string[];
   forkedFrom?: string;
   workspace?: "inherit" | "share" | "branch";
+  unrestrictedTargets?: boolean;
 }
 
 /**

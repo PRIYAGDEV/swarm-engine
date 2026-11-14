@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { initState, readState, ensureState, updateState, recordAgentAction, updateAgentProgress, normalizePath, getSwarmDir, getDeduplicatedChannelList, getSwarmStatusSummary, terminateAgent, modelHotSwap, canTerminateAgent, isTerminalStatus, } from "./state.js";
 import { postMessage, readBoard, swarmWait, MAIN_CHANNEL, CHANNEL_NAME_REGEX, RESERVED_CHANNELS, } from "./board.js";
-import { tickScheduler, mergeAndComplete, generateAgentTaskContent, } from "./spawner.js";
+import { tickScheduler, mergeAndComplete, generateAgentTaskContent, createWorktree, } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
 import { renderDashboard } from "./tui.js";
 import { detectActiveModels, detectActiveModelsSync, resolveModelForRole, getAvailableModels, getQuotaFallbackModel, } from "./detector.js";
@@ -366,6 +366,23 @@ export function createMcpServer() {
                     state = await readState();
                     targetAgent = state.agents[agentId];
                 }
+                else if (targetAgent.status === "waiting") {
+                    await updateState(async (s) => {
+                        const ag = s.agents[agentId];
+                        if (ag && ag.status === "waiting") {
+                            ag.status = "running";
+                            if (ag.workspace === "inherit") {
+                                ag.worktreePath = process.cwd();
+                            }
+                            else if (!ag.worktreePath) {
+                                ag.worktreePath = await createWorktree(ag, s, process.cwd());
+                                ag.branchName = `swarm/${ag.id}`;
+                            }
+                        }
+                    });
+                    state = await readState();
+                    targetAgent = state.agents[agentId];
+                }
             }
             else {
                 targetAgent = Object.values(state.agents).find((a) => a.status === "running");
@@ -373,6 +390,26 @@ export function createMcpServer() {
                     await tickScheduler();
                     state = await readState();
                     targetAgent = Object.values(state.agents).find((a) => a.status === "running");
+                }
+                if (!targetAgent) {
+                    const waitingCandidate = Object.values(state.agents).find((a) => a.status === "waiting");
+                    if (waitingCandidate) {
+                        await updateState(async (s) => {
+                            const ag = s.agents[waitingCandidate.id];
+                            if (ag && ag.status === "waiting") {
+                                ag.status = "running";
+                                if (ag.workspace === "inherit") {
+                                    ag.worktreePath = process.cwd();
+                                }
+                                else if (!ag.worktreePath) {
+                                    ag.worktreePath = await createWorktree(ag, s, process.cwd());
+                                    ag.branchName = `swarm/${ag.id}`;
+                                }
+                            }
+                        });
+                        state = await readState();
+                        targetAgent = state.agents[waitingCandidate.id];
+                    }
                 }
             }
             if (!targetAgent) {
@@ -1366,6 +1403,7 @@ export function createMcpServer() {
                     helperIds: [],
                     forkedFrom: fork && fork.trim() ? fork.trim() : undefined,
                     workspace: workspace || "inherit",
+                    unrestrictedTargets: workspace === "share" || workspace === "branch",
                     lastReadSeq: state.headSeq || 0,
                     lastPostSeq: 0,
                 };
@@ -1399,6 +1437,7 @@ export function createMcpServer() {
                                 success: true,
                                 action: "add",
                                 name: rawName,
+                                model: newAgent.model,
                                 agent: newAgent,
                                 open_board: "read_board",
                             }),

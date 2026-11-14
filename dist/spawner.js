@@ -504,15 +504,17 @@ export async function mergeAndComplete(agentId, outputSummary, cwd = process.cwd
                         changedFiles.push(norm);
                     }
                 }
-                const declaredTargets = (agent.targetFiles || []).map(normalizePath).filter(Boolean);
-                if (declaredTargets.length > 0) {
-                    const unauthorized = changedFiles.filter((f) => !declaredTargets.some((t) => f === t || f.startsWith(t + "/")));
-                    if (unauthorized.length > 0) {
-                        throw new Error(`Pre-merge boundary check failed: agent modified unauthorized files outside targetFiles: ${unauthorized.join(", ")}`);
+                if (!agent.unrestrictedTargets) {
+                    const declaredTargets = (agent.targetFiles || []).map(normalizePath).filter(Boolean);
+                    if (declaredTargets.length > 0) {
+                        const unauthorized = changedFiles.filter((f) => !declaredTargets.some((t) => f === t || f.startsWith(t + "/")));
+                        if (unauthorized.length > 0) {
+                            throw new Error(`Pre-merge boundary check failed: agent modified unauthorized files outside targetFiles: ${unauthorized.join(", ")}`);
+                        }
                     }
-                }
-                else if (changedFiles.length > 0) {
-                    throw new Error(`Pre-merge boundary check failed: read-only agent modified unauthorized files outside targetFiles: ${changedFiles.join(", ")}`);
+                    else if (changedFiles.length > 0) {
+                        throw new Error(`Pre-merge boundary check failed: read-only agent modified unauthorized files outside targetFiles: ${changedFiles.join(", ")}`);
+                    }
                 }
             }
             // Safeguard 2 (Clean Git Merges): Delete AGENT_TASK.md before staging files!

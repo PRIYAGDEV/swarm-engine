@@ -581,20 +581,22 @@ export async function mergeAndComplete(
           }
         }
 
-        const declaredTargets = (agent.targetFiles || []).map(normalizePath).filter(Boolean);
-        if (declaredTargets.length > 0) {
-          const unauthorized = changedFiles.filter(
-            (f) => !declaredTargets.some((t) => f === t || f.startsWith(t + "/"))
-          );
-          if (unauthorized.length > 0) {
+        if (!agent.unrestrictedTargets) {
+          const declaredTargets = (agent.targetFiles || []).map(normalizePath).filter(Boolean);
+          if (declaredTargets.length > 0) {
+            const unauthorized = changedFiles.filter(
+              (f) => !declaredTargets.some((t) => f === t || f.startsWith(t + "/"))
+            );
+            if (unauthorized.length > 0) {
+              throw new Error(
+                `Pre-merge boundary check failed: agent modified unauthorized files outside targetFiles: ${unauthorized.join(", ")}`
+              );
+            }
+          } else if (changedFiles.length > 0) {
             throw new Error(
-              `Pre-merge boundary check failed: agent modified unauthorized files outside targetFiles: ${unauthorized.join(", ")}`
+              `Pre-merge boundary check failed: read-only agent modified unauthorized files outside targetFiles: ${changedFiles.join(", ")}`
             );
           }
-        } else if (changedFiles.length > 0) {
-          throw new Error(
-            `Pre-merge boundary check failed: read-only agent modified unauthorized files outside targetFiles: ${changedFiles.join(", ")}`
-          );
         }
       }
 
