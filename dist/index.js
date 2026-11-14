@@ -19,6 +19,7 @@ import { startMcpServer } from "./mcp.js";
 import { renderDashboard } from "./tui.js";
 import { runAgentWorker } from "./runner.js";
 import { detectActiveModels } from "./detector.js";
+import { loadSwarmBoardData, generateSwarmBoardHtml, formatBoardTerminal, startBoardServer, } from "./board-ui.js";
 /**
  * Helper to retrieve the string value of a command-line flag.
  * Supports both '--flag value' and '--flag=value'.
@@ -575,6 +576,47 @@ async function handleRun(args, cwd = process.cwd()) {
     await handleWatch(args, cwd);
 }
 /**
+ * Handles the 'board' subcommand to display or serve the interactive Swarm Board UI.
+ */
+async function handleBoard(args, cwd = process.cwd()) {
+    const isPlain = hasFlag(args, "--plain", "--terminal", "-t");
+    const isHtml = hasFlag(args, "--html");
+    const htmlPathArg = getFlagValue(args, "--html") || getFlagValue(args, "--out") || getFlagValue(args, "-o");
+    const shouldOpen = hasFlag(args, "--open");
+    const portStr = getFlagValue(args, "--port") || getFlagValue(args, "-p");
+    const port = portStr ? parseInt(portStr, 10) : 3456;
+    const data = await loadSwarmBoardData(cwd);
+    if (isPlain) {
+        console.log(formatBoardTerminal(data));
+        return;
+    }
+    if (isHtml || htmlPathArg) {
+        const targetFile = htmlPathArg || path.join(getSwarmDir(cwd), "board.html");
+        const html = generateSwarmBoardHtml(data);
+        await fs.mkdir(path.dirname(targetFile), { recursive: true });
+        await fs.writeFile(targetFile, html, "utf8");
+        console.log(`✓ Swarm Board HTML exported to: ${targetFile}`);
+        if (shouldOpen) {
+            try {
+                const { exec } = await import("node:child_process");
+                const openCmd = process.platform === "win32" ? "start" : process.platform === "darwin" ? "open" : "xdg-open";
+                exec(`${openCmd} "${targetFile}"`).unref();
+            }
+            catch { }
+        }
+        return;
+    }
+    // Live HTTP Server mode
+    const { url } = await startBoardServer({ port, cwd, open: shouldOpen });
+    console.log(`\n================================================================================`);
+    console.log(`  ● SWARM ENGINE BOARD — LIVE SERVER`);
+    console.log(`  Mission: ${data.title}`);
+    console.log(`  URL:     ${url}`);
+    console.log(`  Tabs:    Board (${data.messages.length}) | Members (${data.members.length}) | Graph`);
+    console.log(`================================================================================\n`);
+    console.log(`Press Ctrl+C to stop the board server.`);
+}
+/**
  * Prints the CLI help message.
  */
 function printHelp() {
@@ -591,6 +633,7 @@ SUBCOMMANDS:
   start [mission] [options]     Alias for run
   worker <agentId>              Run an agent worker autonomously inside its worktree
   status [options]              Display swarm status (Fable dashboard, table, or JSON)
+  board [options]               Interactive Swarm Board UI (Board, Members, Graph)
   watch [options]               Live auto-refreshing swarm status dashboard
   dashboard [options]           Alias for watch (live interactive TUI dashboard)
   tui [options]                 Alias for watch (live interactive TUI dashboard)
@@ -608,6 +651,13 @@ OPTIONS FOR run:
   --model, -m <model>           Model identifier for worker agents
   --leader-model, -lm <model>   Model identifier for leader agent
   --force, -f                   Overwrite existing state if already initialized
+
+OPTIONS FOR board:
+  --serve, -s                   Start live HTTP board server (default, port 3456)
+  --port, -p <port>             Port for the live board server (default: 3456)
+  --html [path]                 Export standalone HTML file (default: .swarm/board.html)
+  --open                        Open board in browser
+  --plain, -t                   Render ASCII board in terminal
 
 OPTIONS FOR status:
   --json                        Output raw state as formatted JSON
@@ -650,6 +700,9 @@ async function main() {
             break;
         case "status":
             await handleStatus(subArgs);
+            break;
+        case "board":
+            await handleBoard(subArgs);
             break;
         case "watch":
         case "dashboard":

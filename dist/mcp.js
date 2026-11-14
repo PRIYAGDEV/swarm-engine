@@ -9,6 +9,7 @@ import { postMessage, readBoard, swarmWait, MAIN_CHANNEL, CHANNEL_NAME_REGEX, RE
 import { tickScheduler, mergeAndComplete, generateAgentTaskContent, createWorktree, } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
 import { renderDashboard } from "./tui.js";
+import { loadSwarmBoardData, generateSwarmBoardHtml, } from "./board-ui.js";
 import { detectActiveModels, detectActiveModelsSync, resolveModelForRole, getAvailableModels, getQuotaFallbackModel, } from "./detector.js";
 /**
  * Cycle detection helper using 3-color DFS traversal.
@@ -1806,6 +1807,58 @@ export function createMcpServer() {
         }
         catch (err) {
             console.error("[swarm-engine] get_swarm_view error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 15: get_swarm_board
+    server.tool("get_swarm_board", "Returns live Swarm Engine Board data matching Google Antigravity & Carbon official Swarm split-view side pane (Board, Members, Graph tabs). Can also export or return self-contained Generative UI HTML.", {
+        exportHtml: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe("If true, exports standalone HTML board to .swarm/board.html"),
+        includeHtml: z
+            .boolean()
+            .optional()
+            .default(true)
+            .describe("If true, includes complete self-contained HTML source in response"),
+    }, async ({ exportHtml, includeHtml }) => {
+        try {
+            const cwd = process.cwd();
+            const data = await loadSwarmBoardData(cwd);
+            const html = generateSwarmBoardHtml(data);
+            let htmlPath;
+            if (exportHtml) {
+                const swarmDir = getSwarmDir(cwd);
+                htmlPath = path.join(swarmDir, "board.html");
+                await fs.promises.mkdir(path.dirname(htmlPath), { recursive: true });
+                await fs.promises.writeFile(htmlPath, html, "utf8");
+            }
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: true,
+                            title: data.title,
+                            isLive: data.isLive,
+                            headSeq: data.headSeq,
+                            messageCount: data.messages.length,
+                            memberCount: data.members.length,
+                            messages: data.messages,
+                            members: data.members,
+                            htmlPath,
+                            ...(includeHtml ? { html } : {}),
+                        }),
+                    },
+                ],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] get_swarm_board error:", err);
             return {
                 isError: true,
                 content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],

@@ -90,6 +90,26 @@ Swarm Engine eliminates artificial agent limits. Concurrency defaults to **infin
    }
    ```
 9. **Show the user the board.** Report the assigned workers and their initial briefs.
+   You can also launch or export the live interactive Swarm Board via:
+   `swarm-engine board` (or `swarm-engine board --open` / `--html`).
+
+---
+
+## 📊 The Swarm Engine Board (Split-View UI & CLI)
+
+The Swarm Board provides an exact split-view side pane matching Google Antigravity & Carbon official UI (`https://antigravity.google/docs/swarm/`):
+- **Header**: Swarm title (`stats and dedupe packages`), animated `● Live` status pulse, and manual refresh trigger.
+- **Tab 1: Board `<count>`**: Live monotonic sequence of immutable board posts with avatar chips, `@sender → @targets` mentions, sequence numbers (`#1`, `#2`, `#3`), timestamps (`2:24 PM`), path chips (`internal/stats/`), and real-time search.
+- **Tab 2: Members `<count>`**: Real-time team roster displaying status dots (🟢 Working, 🟡 Standing By / Sleeping, ⚪ Completed / Retired), assigned models (e.g. `Gemini 4 Carbon`, `Gemini 3.8 Flash`), target files, and token telemetry.
+- **Tab 3: Graph**: Interactive visual DAG node graph showing live communication channels, dependency edges, and collaboration sequence timeline.
+
+CLI and Generative UI Options:
+```bash
+swarm-engine board          # Starts live reactive HTTP board on http://localhost:3456
+swarm-engine board --open   # Launches the board in default browser
+swarm-engine board --html   # Exports self-contained HTML artifact (.swarm/board.html)
+swarm-engine board --plain  # Formats aligned ANSI terminal board
+```
 
 ---
 

@@ -6,7 +6,7 @@
 **A pure Agent Skill for Antigravity, Claude Code, Kilo, and Roo Code · Unbounded parallel subagents · Zero Git collisions · Zero TUI overhead**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 79 Passing](https://img.shields.io/badge/tests-79%20passing%20%7C%20100%25%20verified-brightgreen.svg)](test/)
+[![Tests: 89 Passing](https://img.shields.io/badge/tests-89%20passing%20%7C%20100%25%20verified-brightgreen.svg)](test/)
 [![Antigravity Parity: 100%](https://img.shields.io/badge/Google%20Antigravity%20Parity-100%25%20Exact-purple.svg)](#-google-antigravity--carbon-swarm-parity)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
@@ -151,6 +151,31 @@ Swarm Engine delivers **100% architectural parity** with Google Antigravity's na
    - Non-Git fallback for directories without Git history.
 4. **Stall Watchdog (`monitor`)**:
    - An independent monitor wakes when the swarm goes quiet and alerts `@coordinator [stall]` with the specific stuck sequence numbers.
+
+---
+
+## 📊 The Swarm Engine Board (Split-View UI & CLI)
+
+Swarm Engine reproduces Google Antigravity & Carbon's official Swarm split-view side pane (`https://antigravity.google/docs/swarm/`):
+
+- **Header**: Swarm title (`stats and dedupe packages`), animated `● Live` status pulse, and manual refresh trigger.
+- **Tab 1: Board `<count>`**: Live monotonic sequence of immutable board posts with avatar chips, `@sender → @targets` mentions, sequence numbers (`#1`, `#2`, `#3`), timestamps (`2:24 PM`), path chips (`internal/stats/`), and real-time search.
+- **Tab 2: Members `<count>`**: Real-time team roster displaying status dots (🟢 Working, 🟡 Standing By / Sleeping, ⚪ Completed / Retired), assigned models (e.g. `Gemini 4 Carbon`, `Gemini 3.8 Flash`), target files, and token telemetry.
+- **Tab 3: Graph**: Interactive visual DAG node graph showing live communication channels, dependency edges, and collaboration sequence timeline.
+
+```bash
+# Start live reactive HTTP board with SSE auto-refresh on http://localhost:3456
+swarm-engine board
+
+# Launch directly in default web browser
+swarm-engine board --open
+
+# Export standalone, self-contained HTML artifact styled with official Tailwind CSS
+swarm-engine board --html
+
+# Render aligned ANSI terminal board view
+swarm-engine board --plain
+```
 
 ---
 
