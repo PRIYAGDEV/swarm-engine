@@ -123,6 +123,34 @@ test('Teamwork-Parity Model Resolution & Antigravity Tier Alignment', async (sui
     );
   });
 
+  // TEST 5B: Zero-Compromise Quality Mode
+  await suite.test('T-MOD-05B: Quality profile "quality" runs coders on full leader model without downgrade', () => {
+    const carbonLeader = 'gemini-4-carbon';
+    const claudeLeader = 'claude-3-7-sonnet';
+
+    // Under Carbon in quality mode, worker gets Carbon directly (no downgrade to Flash)
+    assert.equal(
+      resolveModelForRole({ role: 'worker', leaderModel: carbonLeader, qualityProfile: 'quality' }),
+      'gemini-4-carbon'
+    );
+    assert.equal(
+      resolveModelForRole({ role: 'verifier', leaderModel: carbonLeader, qualityProfile: 'quality' }),
+      'gemini-4-carbon'
+    );
+
+    // Under Claude in quality mode, worker gets Claude 3.7 Sonnet directly
+    assert.equal(
+      resolveModelForRole({ role: 'worker', leaderModel: claudeLeader, qualityProfile: 'quality' }),
+      'claude-3-7-sonnet'
+    );
+
+    // Operational monitor still uses flash-lite to avoid token waste on stall pings
+    assert.equal(
+      resolveModelForRole({ role: 'stall_monitor', leaderModel: carbonLeader, qualityProfile: 'quality' }),
+      'gemini-3.8-flash-lite'
+    );
+  });
+
   // TEST 6: Explicit Model & Tier Overrides
   await suite.test('T-MOD-06: Respects explicit requested models and tier keywords', () => {
     const leader = 'gemini-3.8-flash';

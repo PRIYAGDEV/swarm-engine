@@ -83,6 +83,7 @@ export interface ResolveModelOptions {
     brief?: string;
     name?: string;
     cwd?: string;
+    qualityProfile?: "quality" | "tiered" | "economy";
 }
 /**
  * Automatically resolves the optimal model for an agent node following

@@ -416,6 +416,7 @@ export interface ResolveModelOptions {
   brief?: string;
   name?: string;
   cwd?: string;
+  qualityProfile?: "quality" | "tiered" | "economy";
 }
 
 /**
@@ -474,7 +475,7 @@ export function resolveModelForRole(options: ResolveModelOptions): string {
     return detected.leaderModel || "gemini-3.8-flash";
   }
 
-  // 5. Dynamic Teamwork Role Resolution
+  // 5. Dynamic Teamwork Role Resolution & Quality Profile
   const detected = detectActiveModelsSync(options.cwd);
   const activeLeader = options.leaderModel || detected.leaderModel;
   const family = detectProviderFamily(activeLeader);
@@ -483,6 +484,16 @@ export function resolveModelForRole(options: ResolveModelOptions): string {
 
   // If leader is a specific custom model from Kilo / local config and role is standard worker/helper:
   if (family === "generic" && activeLeader && !["default", "inherit"].includes(activeLeader)) {
+    return activeLeader;
+  }
+
+  // Quality Profile Guarantee:
+  // When qualityProfile is "quality" (or SWARM_QUALITY=quality), all architecture, coding,
+  // and verification workers inherit the leader's full model (e.g., gemini-4-carbon,
+  // claude-3-7-sonnet, gemini-3.8-pro) to ensure zero compromise in work quality.
+  // Only operational background pingers (monitor, narrator) utilize flash_lite.
+  const profile = options.qualityProfile || (process.env.SWARM_QUALITY as any) || "tiered";
+  if (profile === "quality" && tier !== "flash_lite" && activeLeader && activeLeader !== "default") {
     return activeLeader;
   }
 
