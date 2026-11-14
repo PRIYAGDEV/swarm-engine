@@ -30,7 +30,7 @@
 |:---|:---|:---|
 | **One Agent at a Time**<br>Tasks run sequentially. 5 tasks take 5× longer. | **Unlimited Parallel Agents ($\infty$)**<br>Spawns 5 to 20+ subagents working simultaneously. | **5x to 10x faster execution**. No artificial queues. |
 | **Git Conflicts & Overwrites**<br>Agents edit the same files and corrupt code. | **Isolated Git Worktrees + File Locks**<br>Each agent gets a clean, private workspace and temporary branch. | **Zero git collisions.** Your `main` branch stays clean. |
-| **Locked into One Hardcoded Model**<br>Forced to use whatever model is hardcoded. | **Automatic Model Detection**<br>Detects your active model from Kilo, Claude, Cursor, or `.env`. | Uses **your model** (MiniMax, Claude, DeepSeek, GPT). |
+| **Locked into One Hardcoded Model**<br>Forced to use whatever model is hardcoded. | **Automatic Model Detection (Zero Quality Compromise)**<br>Automatically uses your active model from Antigravity (Gemini 4 Carbon), Claude Code (Claude 3.7 Sonnet), Kilo, or `.env`. | Uses **your exact model** without silent downgrades. |
 | **Complex MCP Config Files**<br>Debugging JSON files, stdio pipes, and paths. | **Native Agent Skill (Zero-Config)**<br>Installed everywhere on your PC automatically. | **No setup needed.** Just tell your AI to run a swarm. |
 | **Invisible Background Actions**<br>You stare at a spinner wondering what's happening. | **Live Fable 5.1 Terminal Dashboard**<br>Visual cards with real-time diffs, tools, and token speeds. | You see **every edit, read, and test** in real time. |
 
@@ -217,10 +217,13 @@ In previous versions, swarms had a low default concurrency limit (e.g. 4) and st
 <details>
 <summary><b>Q: How does it know which model to use?</b></summary>
 
-Swarm Engine contains an intelligent model detector ([`src/detector.ts`](src/detector.ts)):
-- If you use **Kilo CLI**, it reads your active model directly from `~/.config/kilo/kilo.jsonc` (e.g. `MiniMax-M2.7`, `GLM-5.3-Flash`, `DeepSeek-V4`).
-- It also checks `.env`, Claude Code, and Cursor configs.
-- You never get stuck with the wrong model.
+Swarm Engine contains an intelligent automatic model detector ([`src/detector.ts`](src/detector.ts)) matching Antigravity Teamwork:
+- **Google Antigravity**: Discovers your active model from `<USER_SETTINGS_CHANGE>` conversation transcripts (`Gemini 4 Carbon`, `Gemini 3.8 Pro`, `Gemini 3.8 Flash (High)`).
+- **Zero Quality Compromise**: Coders, builders, and technical workers automatically run on your full active model without being downgraded to smaller models.
+- **Kilo Code / Kilo CLI**: Reads your active model directly from `~/.config/kilo/kilo.jsonc` (e.g. `MiniMax-M2.7`, `GLM-5.3-Flash`, `DeepSeek`).
+- **Claude Code**: Discovers models from Claude settings (`Claude 3.7 Sonnet`, `Claude 3.5 Sonnet`).
+- **Workspace `.env`**: Honors `SWARM_LEADER_MODEL`, `GEMINI_MODEL`, `ANTHROPIC_MODEL`, and `MODEL`.
+- You never get stuck with the wrong or downgraded model.
 </details>
 
 <details>

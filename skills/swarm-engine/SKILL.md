@@ -128,13 +128,22 @@ The core loop of the coordinator:
 
 - **Verifiers**: Add workers whose only job is to check others' work (`read_file`, run tests) and post what is wrong by name to whoever wrote it. Aim for one verifier for every two to four workers.
 - **Give Authors Their Own Workspace (`workspace: "share"`)**: Workers share your working copy by default (`inherit`). Add authors who edit or build simultaneously with `workspace: "share"`: each gets a dedicated Git worktree on branch `swarm/<name>` with automatic dirty-root stashing and safe clean merging. Leave readers and verifiers on `inherit`.
-- **Teamwork-Parity Model Resolution & Dynamic Role Tiers**:
-  Swarm Engine automatically detects active models from the conversation context, Antigravity (`gemini-4-carbon`, `gemini-3.8-pro`, `gemini-3.8-flash`, `gemini-3.8-flash-lite`), Claude Code (`claude-3-7-sonnet`, `claude-3-5-sonnet`), and local configs. Leaving `model` off `add` (or passing `"inherit"`) automatically assigns models based on role tiers matching Antigravity's **Teamwork** skill:
-  - **Lead / Orchestrator / Architect / Planner**: `pro` tier (`gemini-3.8-pro`, `gemini-4-carbon`, `claude-3-7-sonnet`).
-  - **Workers / Coders / DeepCoder / Authors**: `flash` tier (`gemini-3.8-flash`, `claude-3-5-sonnet`).
-  - **Verifiers / Auditors / Checkers / DeepInvestigator**: `pro` or `flash` tier (critical review & testing).
-  - **Stall Monitor / Narrator**: `flash_lite` tier (`gemini-3.8-flash-lite`, `claude-3-5-haiku`) — saves quota during monitoring.
+- **Automatic Teamwork Model Resolution & Zero Quality Compromise**:
+  Swarm Engine automatically detects active models from the user's conversation context (Antigravity `gemini-4-carbon`, `gemini-3.8-pro`, `gemini-3.8-flash`, `gemini-3.8-flash-lite`, Claude Code `claude-3-7-sonnet`, `claude-3-5-sonnet`, Kilo `MiniMax-M2.7`, OpenAI `gpt-4o`, etc.). Leaving `model` off `add` (or passing `"inherit"`) **automatically matches Antigravity's Teamwork skill without compromising work quality**:
+  - **Workers / Coders / Builders / Authors**: Automatically inherit the user's active model (e.g., `gemini-4-carbon`, `claude-3-7-sonnet`, `gemini-3.8-pro`). They are **never** silently downgraded to Flash or Mini, ensuring zero loss of code quality.
+  - **Lead / Orchestrator / Architect / Planner**: Runs on the highest reasoning tier (`gemini-4-carbon`, `claude-3-7-sonnet`, or promoted to `pro` when on base Flash).
+  - **Verifiers / Auditors / Checkers**: Automatically run on the full model to rigorously verify code correctness.
+  - **Stall Monitor / Narrator**: Automatically use the `flash_lite` tier (`gemini-3.8-flash-lite`, `claude-3-5-haiku`) to save tokens and quota during idle background monitoring.
   - **Helpers / Sub-agents (`parentId`) & Forks (`fork`)**: Inherit the parent/source agent's model (`inherit`).
+  - *Down-tiering to smaller models is strictly opt-in via explicit `qualityProfile: "tiered"`.*
+
+- **Dynamic Worker Adaptation According to Agent Harness**:
+  Swarm workers automatically inspect their host environment and dynamically adapt to the active AI agent harness:
+  - **Google Antigravity**: Uses native `post_message`, `read_board`, `swarm_wait`, and `<USER_SETTINGS_CHANGE>` active model detection without truncating version strings.
+  - **Claude Code**: Uses Claude Code execution hooks, shared board protocols, and `claudeCode` environment variables.
+  - **Kilo Code / Kilo CLI**: Injects Kilo session tokens, reads `kilo.jsonc` models, and coordinates via isolated worktrees.
+  - **Roo Code / Cline**: Leverages workspace file syncing and standard tool conventions.
+  - **Standalone / Shell**: Runs direct detached worker commands with standard stdio and lockfiles.
 
 - **Runtime Model Hot-Swapping & Automatic Quota Failover**:
   If an agent runs out of quota (`HTTP 429 RESOURCE_EXHAUSTED`) or the user requests another model, hot-swap it immediately without losing context, memory, or file locks:
