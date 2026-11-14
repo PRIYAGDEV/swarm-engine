@@ -35,9 +35,9 @@ Activate the `swarm-engine` skill whenever a task requires multi-agent paralleli
 
 1. **Large-Scale Multi-File Refactoring**: When modifications span 3 or more distinct files, modules, or layers (e.g. models, controllers, UI components, database migrations) that can be developed concurrently.
 2. **Unbounded Specialist Decomposition**: When breaking down a mission into 5, 10, 15, or 20+ specialized agent roles (e.g. API architect, schema engineer, frontend designer, unit tester, security auditor, performance tuner, documentation author).
-3. **Collision-Free Concurrent Editing**: When multiple AI agents or background tasks need to edit the same repository simultaneously without overwriting files or producing git merge conflicts.
-4. **Isolated Build & Test Verification**: When running experimental refactorings, intensive test suites, or package builds in clean, disposable workspaces on dedicated branches (`swarm/<agentId>`).
-5. **Multi-Branch Parallel Exploration**: When exploring alternative implementation architectures or competing hypotheses concurrently in parallel.
+3. **Collision-Free Concurrent In-Place Editing**: When multiple AI agents collaborate simultaneously on distinct files in the workspace without overwriting files or requiring git worktrees.
+4. **Verified Code Checkpoints & Testing**: When running automated tests, audits, and verifications in-place before declaring milestones complete.
+5. **Multi-Model Parallel Acceleration**: When coordinating different roles (architects, coders, verifiers, stall monitors) with automated model tiers without quality loss.
 
 ---
 
@@ -127,7 +127,10 @@ The core loop of the coordinator:
 ## Shape it
 
 - **Verifiers**: Add workers whose only job is to check others' work (`read_file`, run tests) and post what is wrong by name to whoever wrote it. Aim for one verifier for every two to four workers.
-- **Give Authors Their Own Workspace (`workspace: "share"`)**: Workers share your working copy by default (`inherit`). Add authors who edit or build simultaneously with `workspace: "share"`: each gets a dedicated Git worktree on branch `swarm/<name>` with automatic dirty-root stashing and safe clean merging. Leave readers and verifiers on `inherit`.
+- **Direct Workspace Execution (Zero Worktrees by Default)**: Just like Antigravity's native `teamwork` and `swarm` skills, all workers operate directly in your project repository (`workspace: "inherit"` by default). There are **no git worktrees created**, **no `.swarm/worktrees` directory**, and **no branch switching overhead**:
+  - **Design Out Conflicts**: Two workers editing the same file is the failure mode to design out, not to manage. The coordinator assigns distinct files or modules to each worker before work begins (*"One worker per file, say who owns what before anyone starts"*).
+  - **In-Place Collaboration**: Workers inspect and modify files directly in the working copy and signal completions or reviews on the shared board.
+  - **Optional Worktrees (`workspace: "share"`)**: Dedicated git worktrees and branches (`swarm/<name>`) remain strictly an optional opt-in feature if someone explicitly requests isolated git branch sandboxing, but are never required or default.
 - **Automatic Teamwork Model Resolution & Zero Quality Compromise**:
   Swarm Engine automatically detects active models from the user's conversation context (Antigravity `gemini-4-carbon`, `gemini-3.8-pro`, `gemini-3.8-flash`, `gemini-3.8-flash-lite`, Claude Code `claude-3-7-sonnet`, `claude-3-5-sonnet`, Kilo `MiniMax-M2.7`, OpenAI `gpt-4o`, etc.). Leaving `model` off `add` (or passing `"inherit"`) **automatically matches Antigravity's Teamwork skill without compromising work quality**:
   - **Workers / Coders / Builders / Authors**: Automatically inherit the user's active model (e.g., `gemini-4-carbon`, `claude-3-7-sonnet`, `gemini-3.8-pro`). They are **never** silently downgraded to Flash or Mini, ensuring zero loss of code quality.
@@ -141,7 +144,7 @@ The core loop of the coordinator:
   Swarm workers automatically inspect their host environment and dynamically adapt to the active AI agent harness:
   - **Google Antigravity**: Uses native `post_message`, `read_board`, `swarm_wait`, and `<USER_SETTINGS_CHANGE>` active model detection without truncating version strings.
   - **Claude Code**: Uses Claude Code execution hooks, shared board protocols, and `claudeCode` environment variables.
-  - **Kilo Code / Kilo CLI**: Injects Kilo session tokens, reads `kilo.jsonc` models, and coordinates via isolated worktrees.
+  - **Kilo Code / Kilo CLI**: Injects Kilo session tokens, reads `kilo.jsonc` models, and coordinates via shared board protocols.
   - **Roo Code / Cline**: Leverages workspace file syncing and standard tool conventions.
   - **Standalone / Shell**: Runs direct detached worker commands with standard stdio and lockfiles.
 
@@ -180,21 +183,21 @@ The monitor worker (`monitor`) wakes on a timer when the whole swarm has gone qu
 
 ## 🤖 Pure Agent Coordination Protocol (Skill-Only)
 
-Swarm Engine operates strictly as an **autonomous AI Agent Skill**. As coordinator, you control and monitor the swarm directly through your tools inside the chat—no terminal windows, no TUI dashboards, and no manual commands required:
+Swarm Engine operates strictly as an **autonomous AI Agent Skill** matching Antigravity's native `/teamwork` and `/swarm` workflows. As coordinator, you control and monitor the swarm directly through your tools inside the chat—operating directly in your working copy with **zero worktrees**:
 
 1. **Initialize the Mission**: Name the swarm once the task is split:
    ```json
    { "action": "title", "title": "Database migration and controller endpoints" }
    ```
-2. **Deploy Unbounded Workers**: Spawn parallel subagents for each piece with isolated worktrees:
+2. **Deploy Unbounded Workers**: Spawn parallel subagents for each distinct file or module directly in the shared workspace (zero worktrees):
    ```json
    {
      "action": "add",
      "name": "schema-author",
-     "workspace": "share",
      "brief": "You own prisma/schema.prisma. Add the user audit models. Post diff summary when done."
    }
    ```
+   *(Workers run in your working copy by default with zero worktrees).*
 3. **Dispatch & Coordinate via Board**: Direct workers using doorbells:
    ```json
    { "text": "@schema-author execute migration steps and verify schema compilation" }
@@ -227,11 +230,11 @@ When connected via Model Context Protocol, Swarm Engine exposes the native 4-too
 7. **`add_dynamic_agent`**: On-the-fly subagent injector scaling the swarm mid-flight.
 8. **`pull_agent_task`**: Inspects or claims ready worker tasks.
 9. **`write_blackboard`**: Stores contracts, schemas, and shared state across agents.
-10. **`complete_agent_task`**: Commits and merges worktrees cleanly with `--no-ff` and releases file locks.
+10. **`complete_agent_task`**: Marks tasks completed, releases file locks, and updates downstream DAG agents (cleanly handles in-place workspace edits or optional worktree merges).
 11. **`get_swarm_status`**: Raw status snapshot tool.
 12. **`record_agent_action`**: Records granular tool events and diffs.
 13. **`update_agent_progress`**: Updates telemetry metrics and velocity.
-14. **`run_agent_task`**: Executes autonomous tasks inside isolated worktrees.
+14. **`run_agent_task`**: Executes autonomous tasks directly in the workspace.
 
 ---
 

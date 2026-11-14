@@ -194,4 +194,102 @@ test('Pure Agent Skill - End-to-End Swarm Parity Test', async (t) => {
       await ws.cleanup();
     }
   });
+
+  await t.test('SKILL-02: Zero-worktree direct workspace workflow matching Antigravity Teamwork & Swarm', async () => {
+    const ws = await createTestWorkspace({
+      isGit: true,
+      initialCommit: true,
+      files: {
+        'package.json': JSON.stringify({ name: 'zero-worktree-service', version: '1.0.0' }, null, 2),
+      },
+    });
+
+    let client;
+    try {
+      client = await createMcpClient(ws.dir);
+
+      // STEP 1: Coordinator initializes mission
+      const titleRes = await client.callTool('swarm', {
+        action: 'title',
+        title: 'Zero worktree teamwork parity test',
+      });
+      assert.equal(titleRes.isError, false);
+
+      // STEP 2: Add worker 1 WITHOUT workspace parameter (defaults to inherit - 0 worktrees)
+      const add1 = await client.callTool('swarm', {
+        action: 'add',
+        name: 'backend-dev',
+        role: 'backend',
+        brief: 'Create src/backend.ts with core API logic',
+      });
+      assert.equal(add1.isError, false);
+      const data1 = JSON.parse(add1.content[0].text);
+      assert.equal(data1.agent.workspace, 'inherit', 'Workspace must default to inherit (zero worktrees)');
+
+      // STEP 3: Add worker 2 WITHOUT workspace parameter (defaults to inherit - 0 worktrees)
+      const add2 = await client.callTool('swarm', {
+        action: 'add',
+        name: 'frontend-dev',
+        role: 'frontend',
+        brief: 'Create src/frontend.ts with client UI logic',
+      });
+      assert.equal(add2.isError, false);
+      const data2 = JSON.parse(add2.content[0].text);
+      assert.equal(data2.agent.workspace, 'inherit', 'Workspace must default to inherit (zero worktrees)');
+
+      // STEP 4: Confirm .swarm/worktrees directory does NOT exist on disk!
+      assert.equal(ws.fileExists('.swarm/worktrees'), false, '.swarm/worktrees directory must NOT exist');
+
+      // STEP 5: Worker 1 pulls task and executes directly in workspace
+      const pull1 = await client.callTool('pull_agent_task', { agentId: 'backend-dev' });
+      assert.equal(pull1.data.success, true);
+      assert.equal(pull1.data.worktreePath, ws.dir, 'Worker 1 executes directly in workspace root');
+
+      await ws.writeFile('src/backend.ts', 'export const api = { version: "v1" };\n');
+      await client.callTool('post_message', {
+        from: 'backend-dev',
+        text: '@coordinator [done] src/backend.ts implemented directly in workspace',
+      });
+      const comp1 = await client.callTool('complete_agent_task', { agentId: 'backend-dev' });
+      assert.equal(comp1.isError, false);
+
+      // STEP 6: Worker 2 pulls task and executes directly in workspace
+      const pull2 = await client.callTool('pull_agent_task', { agentId: 'frontend-dev' });
+      assert.equal(pull2.data.success, true);
+      assert.equal(pull2.data.worktreePath, ws.dir, 'Worker 2 executes directly in workspace root');
+
+      await ws.writeFile('src/frontend.ts', 'export const ui = { theme: "dark" };\n');
+      await client.callTool('post_message', {
+        from: 'frontend-dev',
+        text: '@coordinator [done] src/frontend.ts implemented directly in workspace',
+      });
+      const comp2 = await client.callTool('complete_agent_task', { agentId: 'frontend-dev' });
+      assert.equal(comp2.isError, false);
+
+      // STEP 7: Verify .swarm/worktrees was NEVER created on disk throughout the entire lifecycle!
+      assert.equal(ws.fileExists('.swarm/worktrees'), false, '.swarm/worktrees directory must NEVER exist in default mode');
+
+      // STEP 8: Verify both files exist directly in the root workspace
+      assert.ok(ws.fileExists('src/backend.ts'), 'src/backend.ts must exist directly in workspace');
+      assert.ok(ws.fileExists('src/frontend.ts'), 'src/frontend.ts must exist directly in workspace');
+
+      // STEP 9: Read message board and verify posts
+      const boardRes = await client.callTool('read_board', { since: 0 });
+      assert.equal(boardRes.isError, false);
+      const parsedBoard = JSON.parse(boardRes.content[0].text);
+      assert.ok(parsedBoard.messages.length >= 2, 'Board must contain worker completion posts');
+
+      // STEP 10: Cleanly terminate workers
+      const kill1 = await client.callTool('swarm', { action: 'kill', name: 'backend-dev' });
+      assert.equal(kill1.isError, false);
+      const kill2 = await client.callTool('swarm', { action: 'kill', name: 'frontend-dev' });
+      assert.equal(kill2.isError, false);
+
+    } finally {
+      if (client) {
+        await client.close();
+      }
+      await ws.cleanup();
+    }
+  });
 });

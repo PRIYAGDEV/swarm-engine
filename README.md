@@ -15,7 +15,7 @@
 
 <p align="center">
   Tired of single-agent bottlenecks or complex external terminal apps?<br>
-  <b>Swarm Engine</b> is a <b>pure AI Agent Skill</b> that empowers your AI assistant to act as a full <b>Swarm Coordinator</b>—spawning specialized subagents, isolating concurrent edits in Git worktrees, locking files atomically, and synchronizing on a shared message board inside chat.
+  <b>Swarm Engine</b> is a <b>pure AI Agent Skill</b> that empowers your AI assistant to act as a full <b>Swarm Coordinator</b>—spawning specialized subagents, partitioning file ownership cleanly with zero worktree bloat, and synchronizing on a shared message board inside chat.
 </p>
 
 [Pure Skill Architecture](#-pure-agent-skill-architecture) • [How It Works](#-how-does-it-work) • [Using with Your AI Tool](#-using-with-your-favorite-ai-tool) • [FAQ](#-frequently-asked-questions)
@@ -29,7 +29,7 @@
 | What Happens Normally | What Swarm Engine Does | Why You Win |
 |:---|:---|:---|
 | **One Agent at a Time**<br>Tasks run sequentially. 5 tasks take 5× longer. | **Unlimited Parallel Subagents ($\infty$)**<br>Decomposes missions into 5 to 20+ specialized subagents. | **5x to 10x faster execution**. True concurrent throughput. |
-| **Git Conflicts & Overwrites**<br>Agents edit the same files and corrupt code. | **Isolated Git Worktrees + File Locks**<br>Each author works in an isolated worktree (`workspace: "share"`). | **Zero git collisions.** Clean merge onto `main`. |
+| **Git Conflicts & Overwrites**<br>Agents edit the same files and corrupt code. | **Direct Workspace Execution (Zero Worktrees)**<br>Coordinator partitions files cleanly (`workspace: "inherit"` by default). | **Zero git collisions.** Direct workspace editing without worktree bloat. |
 | **Silent Down-Tiering to Weaker Models**<br>Coding workers downgraded to Flash/Mini. | **Automatic User Model Inheritance**<br>Coders automatically run on your session model (`Gemini 4 Carbon`, `Claude 3.7 Sonnet`). | **Zero quality compromise.** Never downgraded. |
 | **Clunky External TUIs & Terminal Apps**<br>Forced to run CLI commands and watch spinners. | **Pure Agent Skill (Nothing Else)**<br>Operated 100% natively inside your AI assistant's chat. | **Zero context switching.** No terminal windows needed. |
 | **Fragile Framework-Specific MCPs**<br>Bespoke configs that break across tools. | **Universal Dynamic Harness Support**<br>Automatically adapts to Antigravity, Claude Code, Kilo, and Roo. | **Works everywhere.** Install once, run anywhere. |
@@ -108,7 +108,8 @@ Swarm Engine installs natively as an Agent Skill across all major AI agent envir
    │  Schema   │   │  API Dev  │   │  Tests    │
    └─────┬─────┘   └─────┬─────┘   └─────┬─────┘
          │               │               │
-     Worktree 1      Worktree 2      Worktree 3   (Isolated Git worktrees)
+         ▼               ▼               ▼
+      prisma/        controllers/      tests/     (Direct in-place file ownership)
          │               │               │
          └───────────────┼───────────────┘
                          ▼
@@ -118,15 +119,15 @@ Swarm Engine installs natively as an Agent Skill across all major AI agent envir
              └───────────┬────────────┘
                          ▼
              ┌────────────────────────┐
-             │ Safe Clean Git Merge   │  (Zero-conflict --no-ff)
+             │ Verified Milestone OK  │  (In-place review & testing)
              └────────────────────────┘
 ```
 
-1. **Size & Split**: The coordinator deconstructs the mission into independent pieces (one per file, layer, or target).
-2. **Isolate**: Authors are added with `workspace: "share"`, receiving dedicated Git worktrees on branch `swarm/<name>`.
-3. **Protect**: Atomic directory file locks (`.swarm/state.lock`) prevent workers from touching the same file simultaneously.
+1. **Size & Split**: The coordinator deconstructs the mission into independent pieces (one per file or module).
+2. **Direct Workspace Execution (Zero Worktrees)**: Workers operate directly in your project repository (`workspace: "inherit"` by default) without creating git worktree folders.
+3. **File Ownership**: The coordinator assigns distinct, non-overlapping files so agents collaborate in-place without collision.
 4. **Coordinate**: Workers communicate via `@doorbell` mentions on the shared message board.
-5. **Land**: When tasks complete, work is verified, merged cleanly to `main` with `--no-ff`, and worktrees are cleaned up.
+5. **Optional Worktree Sandboxing**: Isolated Git worktrees (`workspace: "share"`) remain available if an isolated experimental git branch is ever explicitly requested.
 
 ---
 
@@ -162,9 +163,9 @@ Swarm Engine delivers **100% architectural parity** with Google Antigravity's na
 </details>
 
 <details>
-<summary><b>Q: Will Swarm Engine mess up my Git repository?</b></summary>
+<summary><b>Q: Does Swarm Engine create git worktrees or mess up my Git branches?</b></summary>
 
-**No.** Every parallel author works in an isolated Git worktree on a temporary branch (`swarm/<name>`). When an author finishes, changes are merged cleanly into `main` using `--no-ff`, temporary branches are deleted, and worktree directories are safely pruned.
+**No.** By default, Swarm Engine runs with `workspace: "inherit"` just like Antigravity's `/teamwork` and `/swarm`. Workers operate directly in your project directory with **zero git worktrees** created on disk, zero git branch switching, and zero merge overhead. File conflicts are designed out upfront by assigning distinct files or modules to each worker.
 </details>
 
 <details>
