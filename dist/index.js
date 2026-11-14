@@ -637,7 +637,7 @@ async function main() {
         process.exit(0);
     }
     if (command === "--version" || command === "-v") {
-        console.log("swarm-engine 1.0.0");
+        console.log("swarm-engine 1.1.0");
         process.exit(0);
     }
     switch (command) {

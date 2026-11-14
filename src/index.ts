@@ -713,7 +713,7 @@ async function main(): Promise<void> {
   }
 
   if (command === "--version" || command === "-v") {
-    console.log("swarm-engine 1.0.0");
+    console.log("swarm-engine 1.1.0");
     process.exit(0);
   }
 
