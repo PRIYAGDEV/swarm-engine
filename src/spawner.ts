@@ -13,6 +13,7 @@ import {
   ensureGitExclude,
   isTerminalStatus,
 } from "./state.js";
+import { postMessage } from "./board.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -490,6 +491,41 @@ export async function tickScheduler(cwd: string = process.cwd()): Promise<void> 
 }
 
 /**
+ * Auto-Doorbell Handoff: Analyzes the swarm state for any waiting agents whose
+ * dependencies have all been fulfilled by the completion of agentId, and posts
+ * an automatic targeted doorbell mention to unblock them without coordinator intervention.
+ */
+async function notifyUnblockedDownstream(agentId: string, swarmDir: string): Promise<void> {
+  try {
+    const boardFile = path.join(swarmDir, "board.jsonl");
+    const boardExists = await fs.stat(boardFile).then(() => true).catch(() => false);
+    if (!boardExists) return;
+
+    const state = await readState(swarmDir);
+    for (const [id, node] of Object.entries(state.agents)) {
+      if (
+        id !== agentId &&
+        node.dependsOn &&
+        node.dependsOn.includes(agentId) &&
+        (node.status === "waiting" || node.status === "pending")
+      ) {
+        const allMet = node.dependsOn.every(
+          (depId) => state.agents[depId]?.status === "completed"
+        );
+        if (allMet) {
+          const channel = node.channels?.[0] || "main";
+          await postMessage(swarmDir, {
+            from: "coordinator",
+            text: `@${id} Upstream dependency '${agentId}' has completed and merged cleanly. Your dependencies are satisfied — you are unblocked to proceed!`,
+            channel,
+          });
+        }
+      }
+    }
+  } catch {}
+}
+
+/**
  * Finalizes an agent's task:
  * 1. Cleans AGENT_TASK.md from the worktree before staging (Safeguard 2).
  * 2. In Git repos with HEAD: commits changes with --allow-empty, merges to main (--no-ff),
@@ -551,6 +587,7 @@ export async function mergeAndComplete(
       }
     }, swarmDir);
     await tickScheduler(cwd);
+    await notifyUnblockedDownstream(agentId, swarmDir);
     return;
   }
 
@@ -779,6 +816,7 @@ export async function mergeAndComplete(
 
   // Immediately advance any newly unblocked downstream agents
   await tickScheduler(cwd);
+  await notifyUnblockedDownstream(agentId, swarmDir);
 }
 
 /**
