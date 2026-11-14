@@ -1,18 +1,20 @@
 /**
  * Swarm Board UI Generator
  *
- * Generates an interactive, responsive HTML UI matching Google Antigravity & Carbon
- * official Swarm split-view side pane (https://antigravity.google/docs/swarm/).
+ * Generates an interactive, responsive HTML UI and Terminal TUI matching Google Antigravity
+ * & Teamwork Swarm split-view side pane and wide dashboard.
  *
- * Features:
+ * Key Optimizations & Usability Features:
  * - 3 Primary Tabs: Board <count>, Members <count>, Graph
  * - Live status indicator (● Live) with animated pulse
- * - Instant real-time search & filter bar
- * - Exact message styling: avatar, @sender → @recipients, #seq · time, path code-chips
- * - Members roster with status dots (🟢 working, 🟡 waiting, ⚪ completed), models, files
- * - Interactive SVG DAG / communication graph & timeline
- * - Tailwind CSS via official https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js
- * - Antigravity CSS semantic tokens with standalone dark/light fallbacks
+ * - Clickable Cross-Reference Links (ref #1, ref #5, #6) that smooth-scroll and highlight target posts
+ * - Click-to-copy file path & command chips with instant floating toast confirmations
+ * - One-click "Export PR Markdown Report" compiling verification passes, diffs, and audit trail
+ * - Density Switcher (Comfortable vs Compact) and Width Switcher (Side-Pane vs Wide Canvas)
+ * - Smart Filter Facets: All, By Member, 📁 Files Added, ✅ Verifications, ⚡ Directives
+ * - Interactive Timeline Scrubber in the Graph view with step-by-step node/edge illumination & playback
+ * - Direct member card quick-actions ("💬 Message @agent") prefilling composer
+ * - Complete Terminal TUI viewer with keyboard navigation (j/k, p, c, f, tab, enter, esc)
  */
 import http from "node:http";
 import { BoardMessage } from "./state.js";
@@ -39,7 +41,7 @@ export interface SwarmBoardData {
     headSeq: number;
 }
 /**
- * Returns default sample data matching the official Antigravity linkshelf swarm screenshot.
+ * Returns default sample data matching the official Antigravity linkshelf swarm lifecycle.
  */
 export declare function getSampleSwarmBoardData(): SwarmBoardData;
 /**
@@ -63,6 +65,7 @@ export declare function formatBoardTerminal(data: SwarmBoardData, options?: {
     follow?: boolean;
     width?: number;
     useColor?: boolean;
+    filter?: string;
 }): string;
 /**
  * Runs the interactive terminal TUI Swarm Board.

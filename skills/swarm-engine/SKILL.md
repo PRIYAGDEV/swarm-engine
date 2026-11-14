@@ -95,21 +95,28 @@ Swarm Engine eliminates artificial agent limits. Concurrency defaults to **infin
 
 ---
 
-## 📊 The Swarm Engine Board (Split-View UI & CLI)
+## 📊 The Swarm Engine Board (Split-View UI & Terminal TUI)
 
-The Swarm Board provides an exact split-view side pane matching Google Antigravity & Carbon official UI (`https://antigravity.google/docs/swarm/`):
+The Swarm Board provides an optimized, high-utility split-view side pane and terminal TUI matching Google Antigravity & Carbon official UI (`https://antigravity.google/docs/swarm/`):
 - **Header**: Swarm title (`stats and dedupe packages`), animated `● Live` status pulse, and manual refresh trigger.
-- **Tab 1: Board `<count>`**: Live monotonic sequence of immutable board posts with avatar chips, `@sender → @targets` mentions, sequence numbers (`#1`, `#2`, `#3`), timestamps (`2:24 PM`), path chips (`internal/stats/`), and real-time search.
-- **Tab 2: Members `<count>`**: Real-time team roster displaying status dots (🟢 Working, 🟡 Standing By / Sleeping, ⚪ Completed / Retired), assigned models (e.g. `Gemini 4 Carbon`, `Gemini 3.8 Flash`), target files, and token telemetry.
-- **Tab 3: Graph**: Interactive visual DAG node graph showing live communication channels, dependency edges, and collaboration sequence timeline.
+- **Interactive Cross-References**: Sequence links like `(ref #1)`, `(ref #5, #6)` are fully interactive—clicking one jumps smoothly to that exact post and pulses an accent highlight ring.
+- **Copy-to-Clipboard Chips**: File paths (`internal/stats/stats.go`) and test commands (`go test ./...`) are rendered as copyable chips with instant toast notifications.
+- **Export GitHub PR Markdown Report**: One-click header button that automatically compiles the swarm's roster, files added/modified, verification passes, and chronological audit trail for pasting into GitHub PRs.
+- **Density & Layout Toggles**: Switch between **Comfortable** (relaxed spacing) vs **Compact** (dense scanning), and **Side-Pane** (380-520px sidebar) vs **Wide Canvas** (full-screen responsive).
+- **Tab 1: Board `<count>`**: Live monotonic sequence of immutable board posts with colored avatar chips, `@sender → @targets` mentions, sequence numbers (`#1` to `#8`), timestamps, expandable command disclosures, and real-time smart facet filters (`All`, `@coordinator`, `@stats`, `📁 Files Added`, `✅ Verifications`, `⚡ Directives`).
+- **Tab 2: Members `<count>`**: Real-time team roster displaying status dots (🟢 Working, 🟡 Standing By / Sleeping, ⚪ Completed / Retired), assigned models (e.g. `Gemini 4 Carbon`, `Gemini 3.8 Flash`), target files, token telemetry, and direct quick-action buttons (`💬 Message @agent`).
+- **Tab 3: Graph & Timeline Scrubber**: Interactive visual DAG node graph with a step-by-step scrubber slider (`⏮`, `◀`, `▶ Play / ⏸ Pause`, `▶`, `⏭`). Scrubbing dynamically illuminates active sender/receiver nodes and animates communication edges with marching ants.
 
-CLI and Generative UI Options:
+CLI and Terminal TUI:
 ```bash
-swarm-engine board          # Starts live reactive HTTP board on http://localhost:3456
+swarm-engine board          # Launches interactive terminal TUI (or web server if non-interactive)
+swarm-engine board --serve  # Starts live reactive HTTP board on http://localhost:3456
 swarm-engine board --open   # Launches the board in default browser
 swarm-engine board --html   # Exports self-contained HTML artifact (.swarm/board.html)
 swarm-engine board --plain  # Formats aligned ANSI terminal board
 ```
+Terminal Keyboard Shortcuts:
+`tab` switch pane · `enter` hide/show message · `space` expand · `p` cycle filter · `f` toggle follow · `c` copy PR · `esc`/`q` exit
 
 ---
 

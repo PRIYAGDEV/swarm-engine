@@ -176,4 +176,47 @@ test("Swarm Board UI — Google Antigravity & Carbon Parity", async (t) => {
       await ws.cleanup();
     }
   });
+
+  await t.test("T-BRD-07: Advanced interactive usability features in board HTML", () => {
+    const data = getSampleSwarmBoardData();
+    const html = generateSwarmBoardHtml(data);
+
+    // Interactive cross-reference links
+    assert.ok(html.includes("jumpToMessage"));
+    assert.ok(html.includes("ref-chip"));
+    assert.ok(html.includes("highlightPulse"));
+
+    // File path & command copy chips and floating toasts
+    assert.ok(html.includes("copySnippet"));
+    assert.ok(html.includes("file-chip"));
+    assert.ok(html.includes("cmd-chip"));
+    assert.ok(html.includes("showToast"));
+
+    // PR Markdown Export generator & modal
+    assert.ok(html.includes("exportPrReport"));
+    assert.ok(html.includes("pr-modal"));
+    assert.ok(html.includes("downloadPrReport"));
+
+    // Density and layout mode toggles
+    assert.ok(html.includes("toggleDensity"));
+    assert.ok(html.includes("toggleLayoutMode"));
+    assert.ok(html.includes("compact-mode"));
+    assert.ok(html.includes("wide-mode"));
+
+    // Interactive graph scrubber and timeline
+    assert.ok(html.includes("timeline-slider"));
+    assert.ok(html.includes("toggleScrubberPlay"));
+    assert.ok(html.includes("scrubber-callout"));
+    assert.ok(html.includes("edge-active"));
+  });
+
+  await t.test("T-BRD-08: formatBoardTerminal supports filter presets and active filter indicators", () => {
+    const data = getSampleSwarmBoardData();
+    const unfiltered = formatBoardTerminal(data, { useColor: false });
+    assert.ok(unfiltered.includes("Posts · 8 total"));
+
+    const filtered = formatBoardTerminal(data, { useColor: false, filter: "@stats" });
+    assert.ok(filtered.includes("[filter: @stats]"));
+    assert.ok(filtered.includes("internal/stats"));
+  });
 });
