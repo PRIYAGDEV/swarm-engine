@@ -11,6 +11,7 @@ import {
   readState,
   updateState,
   ensureGitExclude,
+  isTerminalStatus,
 } from "./state.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -906,7 +907,10 @@ export async function spawnAgentNode(
       (options.fork === "coordinator" ? state.mission : undefined) ||
       "Execute assigned task";
 
-    const effectiveRole = options.role || sourceAgent?.role || "worker";
+    const effectiveRole =
+      options.role ||
+      sourceAgent?.role ||
+      (options.parentId ? "helper" : "worker");
     const effectiveModel = options.model || sourceAgent?.model || state.leaderModel || undefined;
     const effectiveSystemPrompt = options.systemPrompt || sourceAgent?.systemPrompt;
     const effectiveChannels =
@@ -1083,11 +1087,8 @@ export async function updateAgentModel(
     if (!agent) {
       throw new Error(`Agent '${agentName}' does not exist`);
     }
-    if (agent.status === "killed" || (agent as any).killed === true) {
-      throw new Error(`Cannot hot-swap model on killed agent '${agentName}'`);
-    }
-    if (agent.status === "completed") {
-      throw new Error(`Cannot hot-swap model on completed agent '${agentName}'`);
+    if (isTerminalStatus(agent.status) || (agent as any).killed === true) {
+      throw new Error(`Cannot hot-swap model on terminal agent '${agentName}' (status: ${agent.status})`);
     }
 
     agent.model = modelId;

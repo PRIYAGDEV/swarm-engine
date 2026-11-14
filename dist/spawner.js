@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizePath, getSwarmDir, readState, updateState, ensureGitExclude, } from "./state.js";
+import { normalizePath, getSwarmDir, readState, updateState, ensureGitExclude, isTerminalStatus, } from "./state.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const execFileAsync = promisify(execFile);
@@ -765,7 +765,9 @@ export async function spawnAgentNode(options, cwd = process.cwd()) {
             sourceAgent?.taskSpec ||
             (options.fork === "coordinator" ? state.mission : undefined) ||
             "Execute assigned task";
-        const effectiveRole = options.role || sourceAgent?.role || "worker";
+        const effectiveRole = options.role ||
+            sourceAgent?.role ||
+            (options.parentId ? "helper" : "worker");
         const effectiveModel = options.model || sourceAgent?.model || state.leaderModel || undefined;
         const effectiveSystemPrompt = options.systemPrompt || sourceAgent?.systemPrompt;
         const effectiveChannels = options.channels && options.channels.length > 0
@@ -917,11 +919,8 @@ export async function updateAgentModel(agentName, newModel, cwd = process.cwd())
         if (!agent) {
             throw new Error(`Agent '${agentName}' does not exist`);
         }
-        if (agent.status === "killed" || agent.killed === true) {
-            throw new Error(`Cannot hot-swap model on killed agent '${agentName}'`);
-        }
-        if (agent.status === "completed") {
-            throw new Error(`Cannot hot-swap model on completed agent '${agentName}'`);
+        if (isTerminalStatus(agent.status) || agent.killed === true) {
+            throw new Error(`Cannot hot-swap model on terminal agent '${agentName}' (status: ${agent.status})`);
         }
         agent.model = modelId;
         return agent;

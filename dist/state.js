@@ -908,8 +908,8 @@ export async function modelHotSwap(agentId, newModel, swarmDir) {
         if (!agent) {
             throw new Error(`Agent '${agentId}' not found in swarm state.`);
         }
-        if (agent.status === "killed" || agent.killed === true || agent.status === "completed" || agent.status === "failed") {
-            throw new Error(`Cannot change model of terminal agent '${agentId}' (status: ${agent.status}).`);
+        if (isTerminalStatus(agent.status) || agent.killed === true) {
+            throw new Error(`Cannot change model of terminal agent '${agentId}' in state '${agent.status}'.`);
         }
         agent.model = trimmed;
         return agent;
