@@ -11,6 +11,7 @@ import {
   getQuotaFallbackModel,
   getAvailableModels,
   detectFromAntigravity,
+  normalizeAntigravityModel,
 } from '../dist/detector.js';
 import { initState, updateState, readState } from '../dist/state.js';
 import { spawnAgentNode } from '../dist/spawner.js';
@@ -272,6 +273,60 @@ test('Teamwork-Parity Model Resolution & Antigravity Tier Alignment', async (sui
 
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // TEST 11: Antigravity Model Normalization
+  await suite.test('T-MOD-11: normalizeAntigravityModel handles version numbers with decimals and display labels without truncation', () => {
+    assert.equal(normalizeAntigravityModel('Gemini 3.8 Flash (High)'), 'gemini-3.8-flash');
+    assert.equal(normalizeAntigravityModel('Gemini 3.8 Flash (Medium)'), 'gemini-3.8-flash');
+    assert.equal(normalizeAntigravityModel('Gemini 4 Carbon'), 'gemini-4-carbon');
+    assert.equal(normalizeAntigravityModel('Gemini 3.8 Pro'), 'gemini-3.8-pro');
+    assert.equal(normalizeAntigravityModel('Claude Sonnet 4.6 (Thinking)'), 'claude-sonnet-4.6');
+    assert.equal(normalizeAntigravityModel('Claude 3.7 Sonnet'), 'claude-3-7-sonnet');
+    assert.equal(normalizeAntigravityModel('Claude 3.5 Haiku'), 'claude-3-5-haiku');
+    assert.equal(normalizeAntigravityModel('gpt-4o-mini'), 'gpt-4o-mini');
+  });
+
+  // TEST 12: Antigravity Session Transcript Parsing
+  await suite.test('T-MOD-12: detectFromAntigravity parses conversation transcript without truncating at decimals', async () => {
+    const tmpAntigravity = await fs.mkdtemp(path.join(os.tmpdir(), 'antigravity-test-'));
+    const convoId = 'test-convo-12345';
+    const logsDir = path.join(tmpAntigravity, 'brain', convoId, '.system_generated', 'logs');
+    await fs.mkdir(logsDir, { recursive: true });
+
+    const transcriptContent = [
+      '{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_SETTINGS_CHANGE>\\\\nThe user changed setting `Model Selection` from None to Gemini 3.8 Flash (High). No need to comment\\\\n</USER_SETTINGS_CHANGE>"}',
+      '{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_SETTINGS_CHANGE>\\\\nThe user changed setting `Model Selection` from Gemini 3.8 Flash (High) to Gemini 4 Carbon. No need to comment\\\\n</USER_SETTINGS_CHANGE>"}'
+    ].join('\n');
+
+    await fs.writeFile(path.join(logsDir, 'transcript.jsonl'), transcriptContent, 'utf8');
+
+    const prevApp = process.env.ANTIGRAVITY_APP_DATA_DIR;
+    const prevConvo = process.env.ANTIGRAVITY_CONVERSATION_ID;
+    const prevModel = process.env.ANTIGRAVITY_MODEL;
+
+    try {
+      process.env.ANTIGRAVITY_APP_DATA_DIR = tmpAntigravity;
+      process.env.ANTIGRAVITY_CONVERSATION_ID = convoId;
+      delete process.env.ANTIGRAVITY_MODEL;
+
+      const detected = detectFromAntigravity();
+      assert.ok(detected, 'detectFromAntigravity should find model in transcript');
+      assert.equal(detected.leader, 'gemini-4-carbon');
+      assert.equal(detected.worker, 'gemini-4-carbon');
+      assert.ok(detected.source.includes('Antigravity session'));
+    } finally {
+      if (prevApp) process.env.ANTIGRAVITY_APP_DATA_DIR = prevApp;
+      else delete process.env.ANTIGRAVITY_APP_DATA_DIR;
+
+      if (prevConvo) process.env.ANTIGRAVITY_CONVERSATION_ID = prevConvo;
+      else delete process.env.ANTIGRAVITY_CONVERSATION_ID;
+
+      if (prevModel) process.env.ANTIGRAVITY_MODEL = prevModel;
+      else delete process.env.ANTIGRAVITY_MODEL;
+
+      await fs.rm(tmpAntigravity, { recursive: true, force: true });
     }
   });
 });

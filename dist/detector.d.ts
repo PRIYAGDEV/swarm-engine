@@ -48,6 +48,16 @@ export declare function detectFromClaudeCode(cwd?: string): {
     source?: string;
 } | undefined;
 /**
+ * Normalizes an Antigravity raw model display name or identifier into a canonical model string.
+ * e.g.:
+ * - "Gemini 3.8 Flash (High)" -> "gemini-3.8-flash"
+ * - "Gemini 4 Carbon" -> "gemini-4-carbon"
+ * - "Gemini 3.8 Pro" -> "gemini-3.8-pro"
+ * - "Claude Sonnet 4.6 (Thinking)" -> "claude-sonnet-4.6"
+ * - "Claude 3.7 Sonnet" -> "claude-3-7-sonnet"
+ */
+export declare function normalizeAntigravityModel(rawName: string): string;
+/**
  * Detects active model and environment when running inside Google Antigravity.
  */
 export declare function detectFromAntigravity(): {

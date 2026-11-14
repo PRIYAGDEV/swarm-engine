@@ -1344,6 +1344,7 @@ export function createMcpServer() {
                     brief: taskBrief,
                     name: rawName,
                     cwd: path.dirname(swarmDir),
+                    qualityProfile: !model || model === "inherit" ? "quality" : undefined,
                 });
                 const newAgent = {
                     id: rawName,

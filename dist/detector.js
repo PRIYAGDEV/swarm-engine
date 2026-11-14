@@ -170,6 +170,47 @@ function detectFromEditorSettings() {
     return undefined;
 }
 /**
+ * Normalizes an Antigravity raw model display name or identifier into a canonical model string.
+ * e.g.:
+ * - "Gemini 3.8 Flash (High)" -> "gemini-3.8-flash"
+ * - "Gemini 4 Carbon" -> "gemini-4-carbon"
+ * - "Gemini 3.8 Pro" -> "gemini-3.8-pro"
+ * - "Claude Sonnet 4.6 (Thinking)" -> "claude-sonnet-4.6"
+ * - "Claude 3.7 Sonnet" -> "claude-3-7-sonnet"
+ */
+export function normalizeAntigravityModel(rawName) {
+    let clean = rawName.trim();
+    clean = clean.replace(/\.+$/, "").trim();
+    const lower = clean.toLowerCase();
+    if (lower.includes("carbon"))
+        return "gemini-4-carbon";
+    if (lower.includes("flash-lite") || lower.includes("flash lite"))
+        return "gemini-3.8-flash-lite";
+    if (lower.includes("flash"))
+        return "gemini-3.8-flash";
+    if (lower.includes("pro"))
+        return "gemini-3.8-pro";
+    if (lower.includes("sonnet") && (lower.includes("4.6") || lower.includes("4-6")))
+        return "claude-sonnet-4.6";
+    if (lower.includes("sonnet") && (lower.includes("3.7") || lower.includes("3-7")))
+        return "claude-3-7-sonnet";
+    if (lower.includes("sonnet"))
+        return "claude-3-5-sonnet";
+    if (lower.includes("haiku"))
+        return "claude-3-5-haiku";
+    if (lower.includes("opus"))
+        return "claude-3-opus";
+    if (lower.includes("gpt-4o-mini") || lower.includes("gpt-4o mini"))
+        return "gpt-4o-mini";
+    if (lower.includes("gpt-4o"))
+        return "gpt-4o";
+    if (lower.includes("o1"))
+        return "o1";
+    if (lower.includes("o3"))
+        return "o3";
+    return clean.toLowerCase().replace(/[\(\)]/g, "").replace(/\s+/g, "-");
+}
+/**
  * Detects active model and environment when running inside Google Antigravity.
  */
 export function detectFromAntigravity() {
@@ -189,40 +230,57 @@ export function detectFromAntigravity() {
             source: "Antigravity environment variable",
         };
     }
-    // 2. Transcript of active conversation if available
+    // 2. Transcript of active conversation (or most recent session)
     const convoId = process.env.ANTIGRAVITY_CONVERSATION_ID;
+    let targetTranscript;
     if (appData && convoId) {
-        const transcriptPath = path.join(appData, "brain", convoId, ".system_generated", "logs", "transcript.jsonl");
-        if (fs.existsSync(transcriptPath)) {
+        const candidate = path.join(appData, "brain", convoId, ".system_generated", "logs", "transcript.jsonl");
+        if (fs.existsSync(candidate)) {
+            targetTranscript = candidate;
+        }
+    }
+    if (!targetTranscript && appData) {
+        const brainDir = path.join(appData, "brain");
+        if (fs.existsSync(brainDir)) {
             try {
-                const raw = fs.readFileSync(transcriptPath, "utf8");
-                const matches = [...raw.matchAll(/Model Selection`?\s+from\s+[^\s]+\s+to\s+([^\.\r\n<]+)/gi)];
-                if (matches.length > 0) {
-                    const lastMatch = matches[matches.length - 1][1].trim();
-                    let normalized = lastMatch.toLowerCase().replace(/[\(\)]/g, "").replace(/\s+/g, "-");
-                    if (normalized.includes("carbon")) {
-                        normalized = "gemini-4-carbon";
-                    }
-                    else if (normalized.includes("flash-lite")) {
-                        normalized = "gemini-3.8-flash-lite";
-                    }
-                    else if (normalized.includes("flash")) {
-                        normalized = "gemini-3.8-flash";
-                    }
-                    else if (normalized.includes("pro")) {
-                        normalized = "gemini-3.8-pro";
-                    }
-                    if (normalized) {
-                        return {
-                            leader: normalized,
-                            worker: normalized,
-                            source: `Antigravity session (${convoId.slice(0, 8)})`,
-                        };
+                const entries = fs.readdirSync(brainDir, { withFileTypes: true });
+                let latestMtime = 0;
+                for (const ent of entries) {
+                    if (!ent.isDirectory())
+                        continue;
+                    const candidate = path.join(brainDir, ent.name, ".system_generated", "logs", "transcript.jsonl");
+                    if (fs.existsSync(candidate)) {
+                        const stat = fs.statSync(candidate);
+                        if (stat.mtimeMs > latestMtime) {
+                            latestMtime = stat.mtimeMs;
+                            targetTranscript = candidate;
+                        }
                     }
                 }
             }
             catch { }
         }
+    }
+    if (targetTranscript && fs.existsSync(targetTranscript)) {
+        try {
+            const raw = fs.readFileSync(targetTranscript, "utf8");
+            // Match Model Selection changes without truncating version numbers at dots (.)
+            const regex = /Model Selection[`'\"]?\s*(?:\\r|\\n|\r|\n)*from\s+[\s\S]+?\s+to\s+(.+?)(?:\.\s+No need|<\/USER_SETTINGS_CHANGE>|\\n|\r|\n|$)/gi;
+            const matches = [...raw.matchAll(regex)];
+            if (matches.length > 0) {
+                const lastMatch = matches[matches.length - 1][1].trim();
+                const normalized = normalizeAntigravityModel(lastMatch);
+                if (normalized) {
+                    const sessionLabel = convoId ? convoId.slice(0, 8) : path.basename(path.dirname(path.dirname(path.dirname(targetTranscript)))).slice(0, 8);
+                    return {
+                        leader: normalized,
+                        worker: normalized,
+                        source: `Antigravity session (${sessionLabel})`,
+                    };
+                }
+            }
+        }
+        catch { }
     }
     // 3. Antigravity state file (antigravity_state.pbtxt)
     if (appData) {
@@ -233,7 +291,13 @@ export function detectFromAntigravity() {
                 const match = raw.match(/last_selected_agent_model:\s*([A-Za-z0-9_-]+)/);
                 if (match && match[1]) {
                     const placeholder = match[1].trim();
-                    const mapped = placeholder === "MODEL_PLACEHOLDER_M318" ? "gemini-3.8-flash" : placeholder;
+                    let mapped = placeholder;
+                    if (placeholder === "MODEL_PLACEHOLDER_M318")
+                        mapped = "gemini-3.8-flash";
+                    else if (placeholder.includes("CARBON") || placeholder.includes("M4"))
+                        mapped = "gemini-4-carbon";
+                    else if (placeholder.includes("PRO") || placeholder.includes("M318_PRO"))
+                        mapped = "gemini-3.8-pro";
                     return {
                         leader: mapped,
                         worker: mapped,
