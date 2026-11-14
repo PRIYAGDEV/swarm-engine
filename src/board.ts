@@ -766,7 +766,7 @@ export async function swarmWait(
   }
 
   const memberName = opts.memberName || opts.member || "coordinator";
-  const since = typeof opts.since === "number" && opts.since > 0 ? opts.since : 0;
+  const since = typeof opts.since === "number" ? opts.since : (state.headSeq || 0);
   const channelFilter = (opts as any).channel
     ? String((opts as any).channel).toLowerCase()
     : undefined;

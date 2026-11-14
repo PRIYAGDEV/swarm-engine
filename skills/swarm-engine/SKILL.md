@@ -235,4 +235,16 @@ Swarm Engine is engineered with 4 unbreakable architectural safeguards:
 4. **Safeguard 4 — Normalized Atomic Directory File Locks**:
    File paths are canonicalized (`normalizePath`) to resolve platform-specific directory separators (Windows `\` vs POSIX `/`) and case differences. State writes and lock acquisitions are serialized via an atomic mutex directory (`.swarm/state.lock`) backed by PID liveness checks and stale lock reclamation (>30s or dead PID).
 
+---
+
+## 🔄 Get Shit Done (GSD) Workflow Integration
+
+Swarm Engine natively implements the Get Shit Done (GSD) execution philosophy. Missions are broken down into discrete waves of concurrent execution where agents deliver verified progress:
+
+1. **Wave-Based Orchestration**: Tasks are grouped into logical execution waves (e.g. Wave 1: Foundation & Schemas, Wave 2: Core Domain Logic & Routes, Wave 3: UI & State Integration, Wave 4: End-to-End Verification).
+2. **Autonomous Execution with Zero Bottlenecks**: Within each wave, agents operate with unbounded concurrency without waiting on coordinator turns.
+3. **Continuous Verification Gates**: Every wave requires automated test verification before advancing downstream work.
+4. **Resilient Handoffs**: Direct doorbell addressing (`@name`) ensures peer-to-peer delegation without central coordinator bottlenecks.
+
+
 

@@ -246,10 +246,14 @@ export class McpTestClient {
       }
     }
 
+    const msgText = res.error?.message || (typeof data === 'string' ? data : (data?.message || data?.error || firstContent?.text));
+
     return {
       isError: Boolean(result.isError),
       content: result.content || [],
       data,
+      message: msgText,
+      error: res.error || (result.isError ? { message: msgText } : undefined),
       raw: result,
     };
   }

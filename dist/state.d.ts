@@ -1,8 +1,25 @@
 /**
  * Status of an individual agent node in the swarm.
- * Expanded to include Antigravity's native lifecycle states.
+ * 6 core lifecycle states matching Antigravity native swarm & Carbon swarm specifications,
+ * plus backward-compatible aliases for legacy DAG scheduler.
  */
-export type AgentStatus = "pending" | "running" | "waiting" | "working" | "stopped" | "completed" | "failed" | "killed";
+export type AgentStatus = "waiting" | "working" | "stopped" | "completed" | "failed" | "killed" | "pending" | "running";
+/**
+ * Terminal statuses from which an agent cannot transition back to active work.
+ */
+export declare const TERMINAL_AGENT_STATUSES: ReadonlySet<AgentStatus>;
+export declare function isTerminalStatus(status: AgentStatus): boolean;
+/**
+ * Permitted status transitions table.
+ */
+export declare const VALID_STATUS_TRANSITIONS: Record<AgentStatus, readonly AgentStatus[]>;
+/**
+ * Validates whether a requested status transition is allowed.
+ */
+export declare function validateStatusTransition(currentStatus: AgentStatus, newStatus: AgentStatus): {
+    valid: boolean;
+    reason?: string;
+};
 /**
  * Single line diff item (green insertion or red deletion).
  */
@@ -77,10 +94,12 @@ export interface ChannelMeta {
  */
 export interface AgentNode {
     id: string;
+    name?: string;
     role: string;
     model?: string;
     systemPrompt?: string;
     taskSpec: string;
+    brief?: string;
     dependsOn: string[];
     targetFiles: string[];
     status: AgentStatus;
@@ -95,6 +114,11 @@ export interface AgentNode {
     verb?: string;
     startedAt?: number;
     completedAt?: number;
+    endedAt?: number;
+    exitCode?: number;
+    terminationReason?: string;
+    error?: string;
+    killed?: boolean;
     channels?: string[];
     wakeMode?: "mentions" | "all" | "none";
     waitSince?: number;
@@ -103,6 +127,7 @@ export interface AgentNode {
     lastPostTime?: number;
     parentId?: string;
     helperIds?: string[];
+    forkedFrom?: string;
     workspace?: "inherit" | "share" | "branch";
 }
 /**
@@ -110,12 +135,15 @@ export interface AgentNode {
  */
 export interface SwarmState {
     mission: string;
+    title?: string;
     leaderModel?: string;
     maxConcurrency?: number;
     workerCommand?: string;
     parallel?: boolean;
     strictDependencies?: boolean;
     agents: Record<string, AgentNode>;
+    roster?: Record<string, AgentNode>;
+    killedAgents?: string[];
     blackboard: Record<string, unknown>;
     lockedFiles: Record<string, string>;
     headSeq?: number;
@@ -126,6 +154,11 @@ export interface SwarmState {
  * normalize reliably across Windows and POSIX systems (Safeguard 4).
  */
 export declare function normalizePath(p: string): string;
+/**
+ * Automatically ensures .git/info/exclude ignores .swarm and AGENT_TASK.md
+ * so git stash -u and git status porcelain do not touch swarm internals.
+ */
+export declare function ensureGitExclude(cwd?: string): Promise<void>;
 /**
  * Helper to compute the absolute path to the .swarm directory.
  */
@@ -212,3 +245,85 @@ export interface ChannelSummary {
  * Ensures 'main' is always present at index 0 and no channel is duplicated.
  */
 export declare function getDeduplicatedChannelList(state: SwarmState): ChannelSummary[];
+/**
+ * Recursively collects all descendant helper agent IDs under a parent agent.
+ */
+export declare function getDescendantHelperIds(state: SwarmState, parentId: string): string[];
+/**
+ * Checks whether targetId is a descendant in the hierarchical subtree of rootId.
+ */
+export declare function isDescendantHelper(state: SwarmState, rootId: string, targetId: string): boolean;
+/**
+ * Determines whether callerId has authorization to terminate targetId.
+ * Scoped boundary rules:
+ * - "coordinator", "system", or unset caller: global authority.
+ * - Self-termination (callerId === targetId): permitted.
+ * - Hierarchical parent/ancestor terminating child/descendant: permitted.
+ * - Sibling or child attempting to terminate ancestor or non-descendant: rejected.
+ */
+export declare function canTerminateAgent(state: SwarmState, callerId?: string, targetId?: string): {
+    allowed: boolean;
+    reason?: string;
+};
+/**
+ * Atomically transitions an agent's lifecycle status with validation and metadata recording.
+ */
+export declare function transitionAgentStatus(agentId: string, newStatus: AgentStatus, meta?: {
+    exitCode?: number;
+    terminationReason?: string;
+    error?: string;
+}, swarmDir?: string): Promise<AgentNode>;
+/**
+ * Terminates an agent and cascades termination to all recursive descendant helpers.
+ * Checks caller permissions and releases file locks.
+ */
+export declare function terminateAgent(agentId: string, options?: {
+    callerId?: string;
+    reason?: string;
+}, swarmDir?: string): Promise<{
+    success: boolean;
+    killed: string[];
+    reason?: string;
+}>;
+/**
+ * Hot-swaps an agent's model identifier while preserving conversation context,
+ * memory, status, and file locks.
+ */
+export declare function modelHotSwap(agentId: string, newModel: string, swarmDir?: string): Promise<AgentNode>;
+/**
+ * Computes a standardized summary snapshot of swarm state for status queries.
+ */
+export declare function getSwarmStatusSummary(state: SwarmState): {
+    success: boolean;
+    action: string;
+    mission: string;
+    title: string;
+    headSeq: number;
+    leaderModel: string | undefined;
+    maxConcurrency: number;
+    totalAgents: number;
+    counts: {
+        waiting: number;
+        working: number;
+        stopped: number;
+        completed: number;
+        failed: number;
+        killed: number;
+        total: number;
+    };
+    summary: {
+        waiting: number;
+        working: number;
+        stopped: number;
+        completed: number;
+        failed: number;
+        killed: number;
+        total: number;
+    };
+    agents: Record<string, AgentNode>;
+    roster: Record<string, any>;
+    members: Record<string, any>;
+    channels: ChannelSummary[];
+    blackboard: Record<string, unknown>;
+    lockedFiles: Record<string, string>;
+};

@@ -4,7 +4,7 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { initState, readState, ensureState, updateState, recordAgentAction, updateAgentProgress, normalizePath, getSwarmDir, getDeduplicatedChannelList, } from "./state.js";
+import { initState, readState, ensureState, updateState, recordAgentAction, updateAgentProgress, normalizePath, getSwarmDir, getDeduplicatedChannelList, getSwarmStatusSummary, terminateAgent, modelHotSwap, canTerminateAgent, } from "./state.js";
 import { postMessage, readBoard, swarmWait, MAIN_CHANNEL, CHANNEL_NAME_REGEX, RESERVED_CHANNELS, } from "./board.js";
 import { tickScheduler, mergeAndComplete, generateAgentTaskContent, } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
@@ -103,6 +103,10 @@ export function createMcpServer() {
                 .optional()
                 .default([])
                 .describe("Files this agent plans to create or modify (normalized for locking). Ensure non-overlapping targetFiles across concurrent agents to avoid file lock contention."),
+            workspace: z
+                .string()
+                .optional()
+                .describe("Workspace isolation mode: 'inherit' (shared root), 'share' (git worktree), 'branch' (isolated clone)"),
         }))
             .optional()
             .default([])
@@ -112,15 +116,24 @@ export function createMcpServer() {
             const detected = await detectActiveModels();
             const effectiveLeader = leaderModel || detected.leaderModel || undefined;
             const defaultWorkerModel = detected.workerModel || effectiveLeader || undefined;
-            const agentSpecs = (agents || []).map((a) => ({
-                id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
-                role: a.role,
-                model: a.model || defaultWorkerModel || effectiveLeader,
-                systemPrompt: a.systemPrompt,
-                taskSpec: a.taskSpec,
-                dependsOn: a.dependsOn || [],
-                targetFiles: (a.targetFiles || []).map(normalizePath).filter(Boolean),
-            }));
+            const agentSpecs = (agents || []).map((a) => {
+                let wsMode = undefined;
+                if (a.workspace) {
+                    wsMode = ["inherit", "share", "branch"].includes(a.workspace)
+                        ? a.workspace
+                        : "share";
+                }
+                return {
+                    id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
+                    role: a.role,
+                    model: a.model || defaultWorkerModel || effectiveLeader,
+                    systemPrompt: a.systemPrompt,
+                    taskSpec: a.taskSpec,
+                    dependsOn: a.dependsOn || [],
+                    targetFiles: (a.targetFiles || []).map(normalizePath).filter(Boolean),
+                    workspace: wsMode,
+                };
+            });
             if (hasCycle(agentSpecs)) {
                 return {
                     isError: true,
@@ -151,6 +164,7 @@ export function createMcpServer() {
                         taskSpec: spec.taskSpec,
                         dependsOn: spec.dependsOn,
                         targetFiles: spec.targetFiles,
+                        workspace: spec.workspace,
                         status: "pending",
                     };
                 }
@@ -210,7 +224,11 @@ export function createMcpServer() {
             .optional()
             .default([])
             .describe("Files this agent will create or modify. Ensure non-overlapping targetFiles to avoid file lock contention with other running subagents."),
-    }, async ({ id, role, model, taskSpec, systemPrompt, dependsOn, targetFiles }) => {
+        workspace: z
+            .string()
+            .optional()
+            .describe("Workspace isolation mode: 'inherit' (shared root), 'share' (git worktree), 'branch' (isolated clone)"),
+    }, async ({ id, role, model, taskSpec, systemPrompt, dependsOn, targetFiles, workspace }) => {
         try {
             let state;
             try {
@@ -237,6 +255,12 @@ export function createMcpServer() {
             }
             const agentId = id || `agent-${crypto.randomUUID().slice(0, 8)}`;
             const normTargets = (targetFiles || []).map(normalizePath).filter(Boolean);
+            let wsMode = undefined;
+            if (workspace) {
+                wsMode = ["inherit", "share", "branch"].includes(workspace)
+                    ? workspace
+                    : "share";
+            }
             const currentSpecs = Object.values(state.agents).map((a) => ({
                 id: a.id,
                 dependsOn: a.dependsOn || [],
@@ -256,6 +280,7 @@ export function createMcpServer() {
                 taskSpec,
                 dependsOn: dependsOn || [],
                 targetFiles: normTargets,
+                workspace: wsMode,
                 status: "pending",
             };
             await updateState((s) => {
@@ -627,6 +652,27 @@ export function createMcpServer() {
         agentId: z.string().describe("Target agent ID to execute"),
     }, async ({ agentId }) => {
         try {
+            const state = await ensureState(getSwarmDir());
+            const agent = state.agents?.[agentId];
+            if (agent &&
+                (agent.status === "completed" ||
+                    agent.status === "killed" ||
+                    agent.status === "failed" ||
+                    agent.killed)) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: false,
+                                started: false,
+                                agentId,
+                                reason: `Cannot run task for agent in terminal state '${agent.status}'.`,
+                            }),
+                        },
+                    ],
+                };
+            }
             // Run in background / async
             runAgentWorker(agentId).catch((err) => {
                 console.error(`[swarm-engine] Error running worker ${agentId}:`, err);
@@ -700,6 +746,32 @@ export function createMcpServer() {
             const mentions = message.mentions || [];
             const channelMentions = message.channelMentions || [];
             const broadcast = Boolean(message.broadcast);
+            // Doorbell wakeup: transition mentioned agents in waiting state to working
+            if (mentions.length > 0 || broadcast) {
+                try {
+                    await updateState((s) => {
+                        for (const [id, ag] of Object.entries(s.agents || {})) {
+                            if (ag.status === "waiting") {
+                                if (broadcast) {
+                                    ag.status = "working";
+                                    delete ag.waitSince;
+                                }
+                                else {
+                                    const targetName = ag.name || id;
+                                    const isHit = mentions.some((m) => targetName.toLowerCase() === m.toLowerCase() ||
+                                        id.toLowerCase() === m.toLowerCase() ||
+                                        id.toLowerCase().startsWith(m.toLowerCase() + "-"));
+                                    if (isHit) {
+                                        ag.status = "working";
+                                        delete ag.waitSince;
+                                    }
+                                }
+                            }
+                        }
+                    }, getSwarmDir());
+                }
+                catch { }
+            }
             return {
                 content: [
                     {
@@ -755,7 +827,11 @@ export function createMcpServer() {
             .string()
             .optional()
             .describe("Alias for member."),
-    }, async ({ since, channel, limit, status, member, memberName }) => {
+        callerId: z
+            .string()
+            .optional()
+            .describe("Caller agent ID querying the board (updates lastReadSeq cursor)."),
+    }, async ({ since, channel, limit, status, member, memberName, callerId }) => {
         try {
             let state;
             try {
@@ -766,7 +842,7 @@ export function createMcpServer() {
             }
             const effectiveSince = since !== undefined && since > 0 ? since : 0;
             const effectiveLimit = limit !== undefined ? limit : 200;
-            const effectiveMember = memberName || member || process.env.SWARM_AGENT_ID || "coordinator";
+            const effectiveMember = callerId || memberName || member || process.env.SWARM_AGENT_ID || "coordinator";
             const result = await readBoard(state, getSwarmDir(), {
                 since: effectiveSince,
                 channel: channel ? channel.trim().toLowerCase() : undefined,
@@ -774,6 +850,18 @@ export function createMcpServer() {
                 status: status === true,
                 memberName: effectiveMember,
             });
+            // Advance reading agent's lastReadSeq cursor
+            if (effectiveMember && effectiveMember !== "coordinator") {
+                try {
+                    await updateState((s) => {
+                        const ag = s.agents?.[effectiveMember];
+                        if (ag) {
+                            ag.lastReadSeq = Math.max(ag.lastReadSeq || 0, result.headSeq);
+                        }
+                    }, getSwarmDir());
+                }
+                catch { }
+            }
             return {
                 content: [
                     {
@@ -804,8 +892,7 @@ export function createMcpServer() {
             .number()
             .int()
             .optional()
-            .default(0)
-            .describe("The sequence number cursor to wait from. Agent wakes for qualifying messages with seq > since. Always pass the highest sequence number already seen."),
+            .describe("The sequence number cursor to wait from. Agent wakes for qualifying messages with seq > since. Defaults to headSeq or member's cursor."),
         mentions_only: z
             .boolean()
             .optional()
@@ -833,9 +920,13 @@ export function createMcpServer() {
         try {
             const state = await ensureState(getSwarmDir());
             const effectiveMember = memberName || member || process.env.SWARM_AGENT_ID || "coordinator";
+            const memberCursor = state.agents?.[effectiveMember]?.lastReadSeq;
+            const effectiveSince = since !== undefined && since !== null
+                ? since
+                : (state.headSeq !== undefined && state.headSeq > 0 ? state.headSeq : (memberCursor || 0));
             const result = await swarmWait(state, getSwarmDir(), {
                 memberName: effectiveMember,
-                since: since !== undefined ? since : 0,
+                since: effectiveSince,
                 channel: channel ? channel.trim().toLowerCase() : undefined,
                 mentionsOnly: mentions_only !== false,
                 timeoutMs,
@@ -864,10 +955,10 @@ export function createMcpServer() {
         }
     });
     // Tool 13: swarm
-    server.tool("swarm", "Unified swarm management tool. In Milestone 1, provides channel management (create, subscribe, unsubscribe, list, archive) to partition message board communication across topic streams. Also provides swarm status reporting.", {
+    server.tool("swarm", "Unified swarm management tool matching Google Antigravity & Carbon native swarm parity. Supports status, models, add, model, kill, title, and channel management.", {
         action: z
             .enum(["channel", "status", "models", "add", "model", "kill", "title"])
-            .describe("Action to perform on the swarm. Use 'channel' for channel management."),
+            .describe("Action to perform on the swarm: status, models, add, model, kill, title, or channel."),
         op: z
             .enum(["create", "subscribe", "unsubscribe", "list", "archive"])
             .optional()
@@ -887,40 +978,409 @@ export function createMcpServer() {
         name: z
             .string()
             .optional()
-            .describe("Member name (alternative to members array for single-member ops)"),
+            .describe("Member name for add, model, kill, or channel ops"),
         caller: z
             .string()
             .optional()
             .describe("Optional caller identity (defaults to 'coordinator' or detected agent)"),
-    }, async ({ action, op, channel, topic, members, name, caller }) => {
+        callerId: z
+            .string()
+            .optional()
+            .describe("Caller agent ID for permission checking (alias for caller)"),
+        brief: z
+            .string()
+            .optional()
+            .describe("Worker task brief/assignment for add"),
+        taskSpec: z
+            .string()
+            .optional()
+            .describe("Detailed task specification (alias for brief)"),
+        role: z
+            .string()
+            .optional()
+            .describe("Role of the agent (e.g. 'worker', 'verifier', 'narrator', 'monitor')"),
+        model: z
+            .string()
+            .optional()
+            .describe("Model identifier for add or model"),
+        title: z
+            .string()
+            .optional()
+            .describe("Swarm mission or title for action: 'title'"),
+        parentId: z
+            .string()
+            .optional()
+            .describe("Parent agent ID for hierarchical helper subagents"),
+        fork: z
+            .string()
+            .optional()
+            .describe("Source member name or 'coordinator' to fork conversation/memory context from"),
+        n: z
+            .number()
+            .optional()
+            .describe("Number of homogeneous copies to spawn (<name>-1..<name>-<n>)"),
+        tasks: z
+            .array(z.string())
+            .optional()
+            .describe("Per-worker slice targets for sharded spawning"),
+        workspace: z
+            .enum(["inherit", "share", "branch"])
+            .optional()
+            .describe("Workspace isolation mode: 'inherit' (shared repo), 'share' (git worktree), or 'branch' (isolated clone)"),
+        wakeMode: z
+            .string()
+            .optional()
+            .describe("Wake filter mode: 'mentions' | 'all' | 'anything'"),
+        channels: z
+            .array(z.string())
+            .optional()
+            .describe("Initial channels to assign to the new worker"),
+        all: z
+            .boolean()
+            .optional()
+            .describe("List all models including unverified for action: 'models'"),
+    }, async ({ action, op, channel, topic, members, name, caller, callerId, brief, taskSpec, role, model, title, parentId, fork, n, tasks, workspace, wakeMode, channels, all, }) => {
         try {
-            const state = await ensureState(getSwarmDir());
-            const effectiveCaller = caller || process.env.SWARM_AGENT_ID || "coordinator";
+            const swarmDir = getSwarmDir();
+            const state = await ensureState(swarmDir);
+            const effectiveCaller = callerId || caller || process.env.SWARM_AGENT_ID || "coordinator";
+            // 1. ACTION: status
             if (action === "status") {
-                const agentsList = Object.values(state.agents || {});
+                const summary = getSwarmStatusSummary(state);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(summary),
+                        },
+                    ],
+                };
+            }
+            // 2. ACTION: title
+            if (action === "title") {
+                if (typeof title !== "string" || !title.trim()) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: "Error: 'title' cannot be empty." }],
+                    };
+                }
+                const trimmedTitle = title.trim();
+                await updateState((s) => {
+                    s.title = trimmedTitle;
+                    s.mission = trimmedTitle;
+                }, swarmDir);
                 return {
                     content: [
                         {
                             type: "text",
                             text: JSON.stringify({
                                 success: true,
-                                action: "status",
-                                mission: state.mission,
-                                headSeq: state.headSeq || 0,
-                                totalAgents: agentsList.length,
-                                channels: state.channels ? Object.values(state.channels) : [],
+                                action: "title",
+                                title: trimmedTitle,
+                                mission: trimmedTitle,
                             }),
                         },
                     ],
                 };
             }
+            // 3. ACTION: models
+            if (action === "models") {
+                const detected = await detectActiveModels(path.dirname(swarmDir));
+                const active = state.leaderModel || detected.leaderModel || "default";
+                const defaultModels = [
+                    "gemini-2.5-pro",
+                    "gemini-2.5-flash",
+                    "claude-3-7-sonnet",
+                    "claude-3-5-sonnet",
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                    "deepseek-coder-v2",
+                ];
+                const models = Array.from(new Set([active, ...defaultModels]));
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                action: "models",
+                                models,
+                                activeModel: active,
+                                leaderModel: active,
+                            }),
+                        },
+                    ],
+                };
+            }
+            // 4. ACTION: model
+            if (action === "model") {
+                if (!name || typeof name !== "string" || !name.trim()) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: "Error: 'name' is required for action: 'model'." }],
+                    };
+                }
+                if (!model || typeof model !== "string" || !model.trim()) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: "Error: 'model' cannot be empty." }],
+                    };
+                }
+                const targetName = name.trim();
+                const targetModel = model.trim();
+                if (targetName === "coordinator") {
+                    await updateState((s) => {
+                        s.leaderModel = targetModel;
+                    }, swarmDir);
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: JSON.stringify({
+                                    success: true,
+                                    action: "model",
+                                    name: "coordinator",
+                                    model: targetModel,
+                                }),
+                            },
+                        ],
+                    };
+                }
+                const targetAgent = state.agents?.[targetName];
+                if (!targetAgent) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: Agent '${targetName}' not found.` }],
+                    };
+                }
+                if (targetAgent.status === "killed" || targetAgent.killed === true) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: Cannot switch model of killed agent '${targetName}'.` }],
+                    };
+                }
+                const updated = await modelHotSwap(targetName, targetModel, swarmDir);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                action: "model",
+                                name: targetName,
+                                model: updated.model,
+                            }),
+                        },
+                    ],
+                };
+            }
+            // 5. ACTION: kill
+            if (action === "kill") {
+                if (!name || typeof name !== "string" || !name.trim()) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: "Error: 'name' is required for action: 'kill'." }],
+                    };
+                }
+                const targetName = name.trim();
+                const targetAgent = state.agents?.[targetName];
+                if (!targetAgent) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: Agent '${targetName}' not found.` }],
+                    };
+                }
+                if (targetAgent.status === "killed" || targetAgent.killed === true) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: Agent '${targetName}' is already killed.` }],
+                    };
+                }
+                const perm = canTerminateAgent(state, effectiveCaller, targetName);
+                if (!perm.allowed) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: ${perm.reason}` }],
+                    };
+                }
+                const killResult = await terminateAgent(targetName, { callerId: effectiveCaller }, swarmDir);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                action: "kill",
+                                name: targetName,
+                                killed: killResult.killed,
+                            }),
+                        },
+                    ],
+                };
+            }
+            // 6. ACTION: add
+            if (action === "add") {
+                if (!name || typeof name !== "string" || !name.trim()) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: "Error: Agent name cannot be empty." }],
+                    };
+                }
+                const rawName = name.trim();
+                // Check duplicate or killed
+                const existing = state.agents?.[rawName];
+                if (existing) {
+                    if (existing.status === "killed" || existing.killed === true) {
+                        return {
+                            isError: true,
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Error: Agent '${rawName}' was killed and cannot be resurrected. Use a new unique name.`,
+                                },
+                            ],
+                        };
+                    }
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Error: Agent '${rawName}' already exists in live swarm.` }],
+                    };
+                }
+                // Parent verification
+                if (parentId && parentId.trim()) {
+                    const pId = parentId.trim();
+                    if (pId !== "coordinator") {
+                        const pAgent = state.agents?.[pId];
+                        if (!pAgent) {
+                            return {
+                                isError: true,
+                                content: [{ type: "text", text: `Error: Parent agent '${pId}' not found.` }],
+                            };
+                        }
+                        if (pAgent.status === "killed" || pAgent.killed === true) {
+                            return {
+                                isError: true,
+                                content: [{ type: "text", text: `Error: Parent agent '${pId}' is killed.` }],
+                            };
+                        }
+                    }
+                }
+                // Fork verification
+                if (fork && fork.trim()) {
+                    const fSource = fork.trim();
+                    if (fSource === rawName) {
+                        return {
+                            isError: true,
+                            content: [{ type: "text", text: `Error: Circular fork: agent '${rawName}' cannot fork from itself.` }],
+                        };
+                    }
+                    if (fSource !== "coordinator") {
+                        const fAgent = state.agents?.[fSource];
+                        if (!fAgent) {
+                            return {
+                                isError: true,
+                                content: [{ type: "text", text: `Error: Source agent '${fSource}' for fork not found.` }],
+                            };
+                        }
+                        if (fAgent.status === "killed" || fAgent.killed === true) {
+                            return {
+                                isError: true,
+                                content: [{ type: "text", text: `Error: Cannot fork from killed agent '${fSource}'.` }],
+                            };
+                        }
+                    }
+                }
+                // Build agent definition
+                const taskBrief = brief ||
+                    taskSpec ||
+                    (fork && fork.trim() !== "coordinator"
+                        ? state.agents?.[fork.trim()]?.taskSpec
+                        : undefined) ||
+                    (fork && fork.trim() === "coordinator" ? state.mission : undefined) ||
+                    `Task assignment for ${rawName}`;
+                const agentModel = model ||
+                    (fork && fork.trim() !== "coordinator"
+                        ? state.agents?.[fork.trim()]?.model
+                        : undefined) ||
+                    state.leaderModel ||
+                    "default";
+                const assignedChannels = channels ||
+                    (fork && fork.trim() !== "coordinator"
+                        ? [...(state.agents?.[fork.trim()]?.channels || ["main"])]
+                        : ["main"]);
+                const effectiveRole = role ||
+                    (fork && fork.trim() !== "coordinator"
+                        ? state.agents?.[fork.trim()]?.role
+                        : undefined) ||
+                    (parentId ? "helper" : "worker");
+                const newAgent = {
+                    id: rawName,
+                    name: rawName,
+                    role: effectiveRole,
+                    model: agentModel,
+                    taskSpec: taskBrief,
+                    brief: taskBrief,
+                    systemPrompt: fork && fork.trim() !== "coordinator"
+                        ? state.agents?.[fork.trim()]?.systemPrompt
+                        : undefined,
+                    dependsOn: [],
+                    targetFiles: [],
+                    status: "waiting",
+                    startedAt: Date.now(),
+                    channels: assignedChannels,
+                    wakeMode: wakeMode || "mentions",
+                    parentId: parentId && parentId.trim() ? parentId.trim() : undefined,
+                    helperIds: [],
+                    forkedFrom: fork && fork.trim() ? fork.trim() : undefined,
+                    workspace: workspace || "inherit",
+                    lastReadSeq: state.headSeq || 0,
+                    lastPostSeq: 0,
+                };
+                // Atomically persist agent and update parent's helperIds
+                await updateState((s) => {
+                    if (s.agents[rawName]) {
+                        if (s.agents[rawName].status === "killed" || s.agents[rawName].killed) {
+                            throw new Error(`Agent '${rawName}' was killed and cannot be resurrected.`);
+                        }
+                        throw new Error(`Agent '${rawName}' already exists.`);
+                    }
+                    if (newAgent.parentId && newAgent.parentId !== "coordinator") {
+                        const parent = s.agents[newAgent.parentId];
+                        if (!parent || parent.status === "killed" || parent.killed) {
+                            throw new Error(`Parent agent '${newAgent.parentId}' not found or killed.`);
+                        }
+                        if (!parent.helperIds || !Array.isArray(parent.helperIds)) {
+                            parent.helperIds = [];
+                        }
+                        if (!parent.helperIds.includes(rawName)) {
+                            parent.helperIds.push(rawName);
+                        }
+                    }
+                    s.agents[rawName] = newAgent;
+                }, swarmDir);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                success: true,
+                                action: "add",
+                                name: rawName,
+                                agent: newAgent,
+                                open_board: "read_board",
+                            }),
+                        },
+                    ],
+                };
+            }
+            // 7. ACTION: channel
             if (action !== "channel") {
                 return {
                     isError: true,
                     content: [
                         {
                             type: "text",
-                            text: `Error: Action '${action}' is not supported in Milestone 1 (available in Milestone 2).`,
+                            text: `Error: Unknown action '${action}'. Must be status, models, add, model, kill, title, or channel.`,
                         },
                     ],
                 };
@@ -936,7 +1396,6 @@ export function createMcpServer() {
                     ],
                 };
             }
-            const swarmDir = getSwarmDir();
             if (op === "list") {
                 const channelList = getDeduplicatedChannelList(state);
                 return {
@@ -1135,6 +1594,146 @@ export function createMcpServer() {
         }
         catch (err) {
             console.error("[swarm-engine] swarm channel error:", err);
+            return {
+                isError: true,
+                content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],
+            };
+        }
+    });
+    // Tool 14: get_swarm_view
+    server.tool("get_swarm_view", "Expose canonical structured JSON telemetry view (view.json) for IDEs, dashboards, and monitors. Generates atomic view.json strictly capped under 64KB.", {}, async () => {
+        try {
+            const swarmDir = getSwarmDir();
+            const viewPath = path.join(swarmDir, "view.json");
+            const tmpPath = path.join(swarmDir, "view.json.tmp");
+            // Clean up any stale tmp file
+            try {
+                await fs.promises.rm(tmpPath, { force: true });
+            }
+            catch { }
+            let state;
+            let isInit = true;
+            try {
+                state = await readState(swarmDir);
+            }
+            catch {
+                isInit = false;
+                state = {
+                    mission: "Swarm uninitialized",
+                    title: "Swarm uninitialized",
+                    maxConcurrency: 0,
+                    agents: {},
+                    blackboard: {},
+                    lockedFiles: {},
+                    headSeq: 0,
+                    channels: {},
+                };
+            }
+            const allAgents = Object.values(state.agents || {});
+            const completedCount = allAgents.filter((a) => a.status === "completed").length;
+            const totalAgents = allAgents.length;
+            const nowMap = {};
+            for (const [id, agent] of Object.entries(state.agents || {})) {
+                const name = agent.name || id;
+                if (agent.status === "waiting") {
+                    nowMap[name] = "Waiting on board";
+                }
+                else if (agent.status === "completed") {
+                    nowMap[name] = "Completed task";
+                }
+                else if (agent.status === "killed") {
+                    nowMap[name] = "Retired / Killed";
+                }
+                else if (agent.status === "failed") {
+                    nowMap[name] = `Failed: ${agent.error || "error"}`;
+                }
+                else {
+                    nowMap[name] = agent.brief || agent.taskSpec || "Working on task";
+                }
+            }
+            const headline = state.title || state.mission || "Swarm execution active";
+            const goal = {
+                title: state.title || state.mission || "Swarm execution",
+                line: state.mission || "",
+            };
+            const phase = {
+                label: state.title || state.mission || "Execution",
+                index: completedCount,
+                total: Math.max(totalAgents, 1),
+            };
+            const workstreams = Object.values(state.channels || {}).map((ch) => {
+                const members = ch.subscribers || [];
+                const assigned = members.map((m) => state.agents?.[m]).filter(Boolean);
+                const done = assigned.filter((a) => a.status === "completed").length;
+                return {
+                    id: ch.name,
+                    title: ch.topic || ch.name,
+                    channel: ch.name,
+                    owners: ch.subscribers,
+                    done,
+                    total: Math.max(assigned.length, 1),
+                };
+            });
+            const attention = [];
+            for (const [id, agent] of Object.entries(state.agents || {})) {
+                if (agent.status === "failed") {
+                    attention.push({
+                        id: `failed-${id}`,
+                        title: `Agent ${id} failed`,
+                        message: agent.error || "Agent execution failed",
+                        severity: "error",
+                        actions: [{ label: "Retry", target: id }],
+                    });
+                }
+            }
+            const threads = Object.values(state.channels || {}).map((ch) => ({
+                id: ch.name,
+                name: ch.name,
+                topic: ch.topic || "",
+            }));
+            const view = {
+                version: 1,
+                initialized: isInit,
+                headline,
+                goal,
+                phase,
+                as_of_seq: state.headSeq || 0,
+                now: nowMap,
+                running_summary: state.mission || "Swarm active",
+                attention,
+                workstreams,
+                threads,
+            };
+            let viewStr = JSON.stringify(view, null, 2);
+            if (Buffer.byteLength(viewStr, "utf8") > 64000) {
+                view.threads = view.threads.slice(0, 5);
+                view.attention = view.attention.slice(0, 10);
+                view.running_summary = (view.running_summary || "").slice(0, 500);
+                viewStr = JSON.stringify(view, null, 2);
+            }
+            // Atomically write view.json
+            try {
+                await fs.promises.mkdir(swarmDir, { recursive: true });
+                const tmpWrite = path.join(swarmDir, `view.json.tmp.${Date.now()}-${crypto.randomBytes(4).toString("hex")}`);
+                await fs.promises.writeFile(tmpWrite, viewStr, "utf8");
+                await fs.promises.rename(tmpWrite, viewPath);
+            }
+            catch { }
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: true,
+                            view,
+                            ...view,
+                        }),
+                    },
+                ],
+            };
+        }
+        catch (err) {
+            console.error("[swarm-engine] get_swarm_view error:", err);
             return {
                 isError: true,
                 content: [{ type: "text", text: `Error: ${err.message || String(err)}` }],

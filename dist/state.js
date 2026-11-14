@@ -3,6 +3,52 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { detectActiveModelsSync } from "./detector.js";
 /**
+ * Terminal statuses from which an agent cannot transition back to active work.
+ */
+export const TERMINAL_AGENT_STATUSES = new Set([
+    "completed",
+    "failed",
+    "killed",
+]);
+export function isTerminalStatus(status) {
+    return TERMINAL_AGENT_STATUSES.has(status);
+}
+/**
+ * Permitted status transitions table.
+ */
+export const VALID_STATUS_TRANSITIONS = {
+    pending: ["working", "running", "waiting", "stopped", "killed"],
+    running: ["waiting", "working", "stopped", "completed", "failed", "killed"],
+    working: ["waiting", "stopped", "completed", "failed", "killed", "running"],
+    waiting: ["working", "running", "stopped", "killed", "failed"],
+    stopped: ["working", "running", "killed", "failed"],
+    completed: [],
+    failed: [],
+    killed: [],
+};
+/**
+ * Validates whether a requested status transition is allowed.
+ */
+export function validateStatusTransition(currentStatus, newStatus) {
+    if (currentStatus === newStatus) {
+        return { valid: true };
+    }
+    if (isTerminalStatus(currentStatus)) {
+        return {
+            valid: false,
+            reason: `Illegal state transition: Agent is in terminal state '${currentStatus}' and cannot transition to '${newStatus}'. Terminal states are permanent.`,
+        };
+    }
+    const allowed = VALID_STATUS_TRANSITIONS[currentStatus];
+    if (!allowed || !allowed.includes(newStatus)) {
+        return {
+            valid: false,
+            reason: `Illegal state transition: Cannot transition agent from '${currentStatus}' to '${newStatus}'.`,
+        };
+    }
+    return { valid: true };
+}
+/**
  * Strips leading './' and converts '\' to '/' to ensure file paths
  * normalize reliably across Windows and POSIX systems (Safeguard 4).
  */
@@ -10,11 +56,55 @@ export function normalizePath(p) {
     if (!p)
         return "";
     let normalized = p.trim().replace(/\\/g, "/");
-    normalized = normalized.replace(/^(\.\/)+/, "");
+    while (normalized.startsWith("../") || normalized.startsWith("./")) {
+        normalized = normalized.replace(/^(\.\.?[\/\\])+/, "");
+    }
     if (normalized !== "/") {
         normalized = normalized.replace(/\/+$/, "");
     }
     return normalized;
+}
+/**
+ * Automatically ensures .git/info/exclude ignores .swarm and AGENT_TASK.md
+ * so git stash -u and git status porcelain do not touch swarm internals.
+ */
+export async function ensureGitExclude(cwd = process.cwd()) {
+    try {
+        const gitDir = path.join(cwd, ".git");
+        const stat = await fs.stat(gitDir).catch(() => null);
+        if (!stat)
+            return;
+        let infoDir = path.join(gitDir, "info");
+        if (!stat.isDirectory()) {
+            const gitContent = await fs.readFile(gitDir, "utf8");
+            const match = gitContent.match(/gitdir:\s*(.+)/);
+            if (match) {
+                infoDir = path.join(path.resolve(cwd, match[1].trim()), "info");
+            }
+            else {
+                return;
+            }
+        }
+        await fs.mkdir(infoDir, { recursive: true });
+        const excludePath = path.join(infoDir, "exclude");
+        let content = "";
+        try {
+            content = await fs.readFile(excludePath, "utf8");
+        }
+        catch { }
+        const linesToAdd = [];
+        if (!content.includes(".swarm")) {
+            linesToAdd.push(".swarm", ".swarm/", ".swarm/*");
+        }
+        if (!content.includes("AGENT_TASK.md")) {
+            linesToAdd.push("AGENT_TASK.md");
+        }
+        if (linesToAdd.length > 0) {
+            const prefix = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+            await fs.appendFile(excludePath, prefix + linesToAdd.join("\n") + "\n", "utf8");
+        }
+    }
+    catch { }
 }
 /**
  * Helper to compute the absolute path to the .swarm directory.
@@ -115,21 +205,28 @@ export async function acquireLock(swarmDir, timeoutMs = 10000) {
                 try {
                     let lockPid;
                     let lockTimestamp;
+                    let isCorrupted = false;
                     // 1. Check owner.json
                     try {
                         const ownerPath = path.join(lockPath, "owner.json");
                         const rawOwner = await fs.readFile(ownerPath, "utf8");
-                        const ownerData = JSON.parse(rawOwner);
-                        if (typeof ownerData.pid === "number")
-                            lockPid = ownerData.pid;
-                        if (typeof ownerData.timestamp === "number")
-                            lockTimestamp = ownerData.timestamp;
+                        try {
+                            const ownerData = JSON.parse(rawOwner);
+                            if (typeof ownerData.pid === "number")
+                                lockPid = ownerData.pid;
+                            if (typeof ownerData.timestamp === "number")
+                                lockTimestamp = ownerData.timestamp;
+                        }
+                        catch {
+                            // owner.json exists on disk but is malformed JSON - treat as corrupted
+                            isCorrupted = true;
+                        }
                     }
                     catch {
-                        // owner.json missing or invalid
+                        // owner.json missing
                     }
                     // 2. Check pid file
-                    if (lockPid === undefined) {
+                    if (lockPid === undefined && !isCorrupted) {
                         try {
                             const pidPath = path.join(lockPath, "pid");
                             const rawPid = await fs.readFile(pidPath, "utf8");
@@ -163,9 +260,9 @@ export async function acquireLock(swarmDir, timeoutMs = 10000) {
                             }
                         }
                     }
-                    const isStale = age > 30000 || isProcessDead;
+                    const isStale = isCorrupted || age > 30000 || isProcessDead;
                     if (isStale) {
-                        console.error(`[swarm-engine] Reclaiming stale lock at ${lockPath} (pid: ${lockPid}, age: ${age}ms, dead: ${isProcessDead})`);
+                        console.error(`[swarm-engine] Reclaiming stale lock at ${lockPath} (pid: ${lockPid}, age: ${age}ms, dead: ${isProcessDead}, corrupted: ${isCorrupted})`);
                         await fs.rm(lockPath, { recursive: true, force: true }).catch(() => { });
                         continue;
                     }
@@ -192,6 +289,7 @@ export async function acquireLock(swarmDir, timeoutMs = 10000) {
 export async function initState(mission, maxConcurrency = 0, workerCommand, swarmDir, leaderModel, parallel = true, strictDependencies = false) {
     const dir = swarmDir || getSwarmDir();
     await fs.mkdir(dir, { recursive: true });
+    await ensureGitExclude(path.dirname(dir));
     const detected = detectActiveModelsSync(path.dirname(dir));
     const now = Date.now();
     const maxSeq = await getHighestSeqFromBoard(dir);
@@ -266,6 +364,7 @@ export async function ensureState(swarmDir) {
                 return await readState(dir);
             }
             catch {
+                await ensureGitExclude(path.dirname(dir));
                 const detected = detectActiveModelsSync(path.dirname(dir));
                 const now = Date.now();
                 const maxSeq = await getHighestSeqFromBoard(dir);
@@ -398,8 +497,30 @@ export async function readState(swarmDir) {
         if (!state.agents || typeof state.agents !== "object") {
             state.agents = {};
         }
+        if (state.mission && !state.title) {
+            state.title = state.mission;
+        }
+        else if (state.title && !state.mission) {
+            state.mission = state.title;
+        }
+        state.roster = state.agents;
+        if (!state.killedAgents || !Array.isArray(state.killedAgents)) {
+            state.killedAgents = [];
+        }
         // Normalize individual agent nodes
         for (const agent of Object.values(state.agents)) {
+            if (!agent.name && agent.id) {
+                agent.name = agent.id;
+            }
+            if (!agent.brief && agent.taskSpec) {
+                agent.brief = agent.taskSpec;
+            }
+            if (!agent.helperIds || !Array.isArray(agent.helperIds)) {
+                agent.helperIds = [];
+            }
+            if (!agent.status) {
+                agent.status = "working";
+            }
             if (!agent.channels || !Array.isArray(agent.channels)) {
                 agent.channels = ["main"];
             }
@@ -435,7 +556,34 @@ export async function updateState(mutator, swarmDir) {
     const dir = swarmDir || getSwarmDir();
     await acquireLock(dir);
     try {
-        const state = await readState(dir);
+        let state;
+        try {
+            state = await readState(dir);
+        }
+        catch {
+            const detected = detectActiveModelsSync(path.dirname(dir));
+            state = {
+                mission: "Default Swarm Mission",
+                leaderModel: detected.leaderModel || undefined,
+                maxConcurrency: 0,
+                parallel: true,
+                strictDependencies: false,
+                agents: {},
+                blackboard: {},
+                lockedFiles: {},
+                headSeq: 0,
+                channels: {
+                    main: {
+                        name: "main",
+                        topic: "Default swarm coordination channel",
+                        createdBy: "system",
+                        createdAt: Date.now(),
+                        archived: false,
+                        subscribers: ["*"],
+                    },
+                },
+            };
+        }
         const result = await mutator(state);
         const statePath = path.join(dir, "state.json");
         const tmpId = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
@@ -585,4 +733,261 @@ export function getDeduplicatedChannelList(state) {
         });
     }
     return list;
+}
+/**
+ * Recursively collects all descendant helper agent IDs under a parent agent.
+ */
+export function getDescendantHelperIds(state, parentId) {
+    const result = [];
+    const queue = [parentId];
+    const visited = new Set([parentId]);
+    while (queue.length > 0) {
+        const current = queue.shift();
+        for (const [id, agent] of Object.entries(state.agents || {})) {
+            if (agent.parentId === current && !visited.has(id)) {
+                visited.add(id);
+                result.push(id);
+                queue.push(id);
+            }
+        }
+    }
+    return result;
+}
+/**
+ * Checks whether targetId is a descendant in the hierarchical subtree of rootId.
+ */
+export function isDescendantHelper(state, rootId, targetId) {
+    if (rootId === targetId)
+        return true;
+    let curr = state.agents?.[targetId]?.parentId;
+    const visited = new Set();
+    while (curr && !visited.has(curr)) {
+        if (curr === rootId)
+            return true;
+        visited.add(curr);
+        curr = state.agents?.[curr]?.parentId;
+    }
+    return false;
+}
+/**
+ * Determines whether callerId has authorization to terminate targetId.
+ * Scoped boundary rules:
+ * - "coordinator", "system", or unset caller: global authority.
+ * - Self-termination (callerId === targetId): permitted.
+ * - Hierarchical parent/ancestor terminating child/descendant: permitted.
+ * - Sibling or child attempting to terminate ancestor or non-descendant: rejected.
+ */
+export function canTerminateAgent(state, callerId, targetId) {
+    if (!targetId) {
+        return { allowed: false, reason: "Target agent ID is required" };
+    }
+    if (!callerId || callerId === "coordinator" || callerId === "system") {
+        return { allowed: true };
+    }
+    if (callerId === targetId) {
+        return { allowed: true };
+    }
+    if (isDescendantHelper(state, callerId, targetId)) {
+        return { allowed: true };
+    }
+    return {
+        allowed: false,
+        reason: `Permission denied: Agent '${callerId}' is not authorized to terminate '${targetId}' (target is not in caller's hierarchical subtree).`,
+    };
+}
+/**
+ * Atomically transitions an agent's lifecycle status with validation and metadata recording.
+ */
+export async function transitionAgentStatus(agentId, newStatus, meta, swarmDir) {
+    const dir = swarmDir || getSwarmDir();
+    return await updateState((state) => {
+        const agent = state.agents[agentId];
+        if (!agent) {
+            throw new Error(`Agent '${agentId}' not found in swarm state.`);
+        }
+        const check = validateStatusTransition(agent.status, newStatus);
+        if (!check.valid) {
+            throw new Error(check.reason);
+        }
+        agent.status = newStatus;
+        if (newStatus === "working" && !agent.startedAt) {
+            agent.startedAt = Date.now();
+        }
+        if (newStatus === "completed") {
+            agent.completedAt = Date.now();
+            agent.endedAt = Date.now();
+        }
+        if (newStatus === "killed") {
+            agent.killed = true;
+            agent.endedAt = Date.now();
+            if (meta?.terminationReason)
+                agent.terminationReason = meta.terminationReason;
+        }
+        if (newStatus === "failed") {
+            agent.endedAt = Date.now();
+            if (meta?.error)
+                agent.error = meta.error;
+            if (meta?.terminationReason)
+                agent.terminationReason = meta.terminationReason;
+        }
+        if (meta?.exitCode !== undefined)
+            agent.exitCode = meta.exitCode;
+        return agent;
+    }, dir);
+}
+/**
+ * Terminates an agent and cascades termination to all recursive descendant helpers.
+ * Checks caller permissions and releases file locks.
+ */
+export async function terminateAgent(agentId, options, swarmDir) {
+    const dir = swarmDir || getSwarmDir();
+    return await updateState((state) => {
+        const target = state.agents[agentId];
+        if (!target) {
+            throw new Error(`Agent '${agentId}' not found.`);
+        }
+        if (target.status === "killed" || target.killed === true) {
+            throw new Error(`Agent '${agentId}' is already killed.`);
+        }
+        const perm = canTerminateAgent(state, options?.callerId, agentId);
+        if (!perm.allowed) {
+            throw new Error(perm.reason || "Permission denied");
+        }
+        const descendants = getDescendantHelperIds(state, agentId);
+        const killList = [agentId, ...descendants];
+        const now = Date.now();
+        for (const id of killList) {
+            const ag = state.agents[id];
+            if (!ag)
+                continue;
+            if (ag.pid) {
+                try {
+                    process.kill(ag.pid, "SIGTERM");
+                }
+                catch { }
+            }
+            ag.status = "killed";
+            ag.killed = true;
+            ag.endedAt = now;
+            ag.terminationReason =
+                id === agentId
+                    ? options?.reason || "Terminated by swarm management kill"
+                    : `Cascading termination: parent '${agentId}' was killed`;
+            // Release locks owned by this agent
+            if (state.lockedFiles) {
+                if (Array.isArray(state.lockedFiles)) {
+                    // array guard
+                }
+                else {
+                    for (const [file, assigned] of Object.entries(state.lockedFiles)) {
+                        if (assigned === id) {
+                            delete state.lockedFiles[file];
+                        }
+                    }
+                }
+            }
+        }
+        return {
+            success: true,
+            killed: killList,
+        };
+    }, dir);
+}
+/**
+ * Hot-swaps an agent's model identifier while preserving conversation context,
+ * memory, status, and file locks.
+ */
+export async function modelHotSwap(agentId, newModel, swarmDir) {
+    const dir = swarmDir || getSwarmDir();
+    const trimmed = (newModel || "").trim();
+    if (!trimmed) {
+        throw new Error("Model identifier cannot be empty.");
+    }
+    return await updateState((state) => {
+        const agent = state.agents[agentId];
+        if (!agent) {
+            throw new Error(`Agent '${agentId}' not found in swarm state.`);
+        }
+        if (agent.status === "killed" || agent.killed === true || agent.status === "completed" || agent.status === "failed") {
+            throw new Error(`Cannot change model of terminal agent '${agentId}' (status: ${agent.status}).`);
+        }
+        agent.model = trimmed;
+        return agent;
+    }, dir);
+}
+/**
+ * Computes a standardized summary snapshot of swarm state for status queries.
+ */
+export function getSwarmStatusSummary(state) {
+    const agents = state.agents || {};
+    const counts = {
+        waiting: 0,
+        working: 0,
+        stopped: 0,
+        completed: 0,
+        failed: 0,
+        killed: 0,
+        total: Object.keys(agents).length,
+    };
+    const roster = {};
+    for (const [id, a] of Object.entries(agents)) {
+        const st = a.status || "working";
+        if (st === "waiting")
+            counts.waiting++;
+        else if (st === "working" || st === "running")
+            counts.working++;
+        else if (st === "stopped")
+            counts.stopped++;
+        else if (st === "completed")
+            counts.completed++;
+        else if (st === "failed")
+            counts.failed++;
+        else if (st === "killed" || a.killed)
+            counts.killed++;
+        roster[id] = {
+            id: a.id,
+            name: a.name || a.id,
+            role: a.role,
+            status: a.status,
+            model: a.model,
+            brief: a.brief || a.taskSpec,
+            taskSpec: a.taskSpec,
+            parentId: a.parentId,
+            helperIds: a.helperIds || [],
+            forkedFrom: a.forkedFrom,
+            workspace: a.workspace || "inherit",
+            channels: a.channels || ["main"],
+            wakeMode: a.wakeMode || "mentions",
+            waitSince: a.waitSince,
+            lastReadSeq: a.lastReadSeq || 0,
+            lastPostSeq: a.lastPostSeq,
+            thought: a.thought,
+            verb: a.verb,
+            tokens: a.tokens,
+            tokPerSec: a.tokPerSec,
+            killed: Boolean(a.killed || a.status === "killed"),
+            startedAt: a.startedAt,
+            completedAt: a.completedAt,
+            endedAt: a.endedAt,
+        };
+    }
+    const channels = getDeduplicatedChannelList(state);
+    return {
+        success: true,
+        action: "status",
+        mission: state.mission,
+        title: state.title || state.mission,
+        headSeq: state.headSeq || 0,
+        leaderModel: state.leaderModel,
+        maxConcurrency: state.maxConcurrency ?? 0,
+        totalAgents: counts.total,
+        counts,
+        summary: counts,
+        agents: state.agents,
+        roster,
+        members: roster,
+        channels,
+        blackboard: state.blackboard || {},
+        lockedFiles: state.lockedFiles || {},
+    };
 }
