@@ -81,7 +81,7 @@ test('Teamwork-Parity Model Resolution & Antigravity Tier Alignment', async (sui
   });
 
   // TEST 4: Dynamic Model Resolution with Gemini 4 Carbon
-  await suite.test('T-MOD-04: Preserves Gemini 4 Carbon for reasoning roles when active', () => {
+  await suite.test('T-MOD-04: Automatically assigns Gemini 4 Carbon for reasoning and coding roles without downgrade', () => {
     const carbonLeader = 'gemini-4-carbon';
 
     const archModel = resolveModelForRole({
@@ -91,12 +91,22 @@ test('Teamwork-Parity Model Resolution & Antigravity Tier Alignment', async (sui
     });
     assert.equal(archModel, 'gemini-4-carbon');
 
-    const coderModel = resolveModelForRole({
+    // Automatic Teamwork default: worker inherits user's active model (Gemini 4 Carbon)
+    const autoCoderModel = resolveModelForRole({
       role: 'worker',
       leaderModel: carbonLeader,
       name: 'worker-1',
     });
-    assert.equal(coderModel, 'gemini-3.8-flash');
+    assert.equal(autoCoderModel, 'gemini-4-carbon');
+
+    // Explicit tiered mode: worker down-tiers to flash
+    const tieredCoderModel = resolveModelForRole({
+      role: 'worker',
+      leaderModel: carbonLeader,
+      name: 'worker-1',
+      qualityProfile: 'tiered',
+    });
+    assert.equal(tieredCoderModel, 'gemini-3.8-flash');
 
     const monModel = resolveModelForRole({
       role: 'monitor',
@@ -107,15 +117,21 @@ test('Teamwork-Parity Model Resolution & Antigravity Tier Alignment', async (sui
   });
 
   // TEST 5: Dynamic Model Resolution under Anthropic/Claude
-  await suite.test('T-MOD-05: Resolves Teamwork roles under Claude leader', () => {
+  await suite.test('T-MOD-05: Resolves Teamwork roles under Claude leader automatically without downgrade', () => {
     const claudeLeader = 'claude-3-7-sonnet';
 
     assert.equal(
       resolveModelForRole({ role: 'architect', leaderModel: claudeLeader }),
       'claude-3-7-sonnet'
     );
+    // Automatic Teamwork default: worker inherits user's active model (Claude 3.7 Sonnet)
     assert.equal(
       resolveModelForRole({ role: 'worker', leaderModel: claudeLeader }),
+      'claude-3-7-sonnet'
+    );
+    // Explicit tiered mode down-tiers to claude-3-5-sonnet
+    assert.equal(
+      resolveModelForRole({ role: 'worker', leaderModel: claudeLeader, qualityProfile: 'tiered' }),
       'claude-3-5-sonnet'
     );
     assert.equal(

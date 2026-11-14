@@ -293,9 +293,30 @@ export function detectFromAntigravity(): { leader?: string; worker?: string; sou
   if (targetTranscript && fs.existsSync(targetTranscript)) {
     try {
       const raw = fs.readFileSync(targetTranscript, "utf8");
-      // Match Model Selection changes without truncating version numbers at dots (.)
-      const regex = /Model Selection[`'\"]?\s*(?:\\r|\\n|\r|\n)*from\s+[\s\S]+?\s+to\s+(.+?)(?:\.\s+No need|<\/USER_SETTINGS_CHANGE>|\\n|\r|\n|$)/gi;
-      const matches = [...raw.matchAll(regex)];
+      // 1. Look for <USER_SETTINGS_CHANGE> blocks specifically
+      const tagRegex = /<USER_SETTINGS_CHANGE>([\s\S]*?)<\/USER_SETTINGS_CHANGE>/g;
+      const tagMatches = [...raw.matchAll(tagRegex)];
+      if (tagMatches.length > 0) {
+        for (let i = tagMatches.length - 1; i >= 0; i--) {
+          const inner = tagMatches[i][1];
+          const m = inner.match(/Model Selection[`'\"]?\s*(?:\\r|\\n|\r|\n)*from\s+[^\r\n]+?\s+to\s+([^\r\n]+?)(?:\.\s+No need|\.No need|\.$|$)/i);
+          if (m && m[1]) {
+            const normalized = normalizeAntigravityModel(m[1]);
+            if (normalized) {
+              const sessionLabel = convoId ? convoId.slice(0, 8) : path.basename(path.dirname(path.dirname(path.dirname(targetTranscript)))).slice(0, 8);
+              return {
+                leader: normalized,
+                worker: normalized,
+                source: `Antigravity session (${sessionLabel})`,
+              };
+            }
+          }
+        }
+      }
+
+      // 2. Direct fallback regex across transcript lines without truncating at decimals
+      const modelRegex = /Model Selection[`'\"]?\s*(?:\\r|\\n|\r|\n)*from\s+[^\r\n]+?\s+to\s+([^\r\n]+?)(?:\.\s+No need|\.No need|\.$|$)/gi;
+      const matches = [...raw.matchAll(modelRegex)];
       if (matches.length > 0) {
         const lastMatch = matches[matches.length - 1][1].trim();
         const normalized = normalizeAntigravityModel(lastMatch);
@@ -540,13 +561,34 @@ export function resolveModelForRole(options: ResolveModelOptions): string {
     return activeLeader;
   }
 
-  // Quality Profile Guarantee:
-  // When qualityProfile is "quality" (or SWARM_QUALITY=quality), all architecture, coding,
-  // and verification workers inherit the leader's full model (e.g., gemini-4-carbon,
-  // claude-3-7-sonnet, gemini-3.8-pro) to ensure zero compromise in work quality.
-  // Only operational background pingers (monitor, narrator) utilize flash_lite.
-  const profile = options.qualityProfile || (process.env.SWARM_QUALITY as any) || "tiered";
-  if (profile === "quality" && tier !== "flash_lite" && activeLeader && activeLeader !== "default") {
+  // AUTOMATIC TEAMWORK MODEL ASSIGNMENT (Zero-Compromise Quality by Default):
+  // Like Antigravity Teamwork and native swarm, workers automatically run on the user's
+  // active model so work quality is NEVER compromised.
+  // - Operational monitors / narrators / telemetry -> flash_lite (saves tokens on idle polling)
+  // - High reasoning/orchestration roles (architect, planner, lead) -> pro/carbon tier
+  // - Technical workers, coders, builders, verifiers -> automatically inherit the user's active model!
+  // Only when qualityProfile is explicitly set to "tiered" or "economy" is down-tiering applied.
+  const profile = options.qualityProfile || (process.env.SWARM_QUALITY as any) || "auto";
+
+  if (profile === "tiered" || profile === "economy") {
+    return mapTierToProviderModel(tier, family, activeLeader);
+  }
+
+  // Automatic Teamwork & Quality mode (default):
+  if (tier === "flash_lite") {
+    return mapTierToProviderModel("flash_lite", family, activeLeader);
+  }
+
+  // If role is pro (architect/lead/planner) and leader is a base flash model, upgrade to pro
+  if (tier === "pro") {
+    if (activeLeader && (activeLeader.includes("carbon") || activeLeader.includes("pro") || activeLeader.includes("sonnet-4") || activeLeader.includes("3-7") || activeLeader.includes("gpt-4o"))) {
+      return activeLeader;
+    }
+    return mapTierToProviderModel("pro", family, activeLeader);
+  }
+
+  // Coding workers, verifiers, builders, implementers automatically inherit user's active model:
+  if (activeLeader && activeLeader !== "default" && activeLeader !== "inherit") {
     return activeLeader;
   }
 
