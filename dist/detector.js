@@ -669,3 +669,4 @@ export async function detectActiveModels(cwd = process.cwd()) {
     catch { }
     return syncResult;
 }
+export { detectAgentHarness, generateDynamicAgentTask, resolveWorkerCommandForHarness, buildWorkerEnvForHarness, } from "./harness.js";

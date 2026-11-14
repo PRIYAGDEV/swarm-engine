@@ -121,3 +121,4 @@ export declare function detectActiveModelsSync(cwd?: string): DetectedModels;
  * Full automatic model detector including async local Ollama probe.
  */
 export declare function detectActiveModels(cwd?: string): Promise<DetectedModels>;
+export { detectAgentHarness, generateDynamicAgentTask, resolveWorkerCommandForHarness, buildWorkerEnvForHarness, AgentHarnessType, AgentHarnessInfo, } from "./harness.js";

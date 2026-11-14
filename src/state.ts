@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { detectActiveModelsSync } from "./detector.js";
+import { detectAgentHarness } from "./harness.js";
 
 /**
  * Status of an individual agent node in the swarm.
@@ -1236,6 +1237,7 @@ export function getSwarmStatusSummary(state: SwarmState) {
   return {
     success: true,
     action: "status",
+    harness: detectAgentHarness().type,
     mission: state.mission,
     title: state.title || state.mission,
     headSeq: state.headSeq || 0,

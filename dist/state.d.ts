@@ -296,6 +296,7 @@ export declare function modelHotSwap(agentId: string, newModel: string, swarmDir
 export declare function getSwarmStatusSummary(state: SwarmState): {
     success: boolean;
     action: string;
+    harness: import("./harness.js").AgentHarnessType;
     mission: string;
     title: string;
     headSeq: number;

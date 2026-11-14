@@ -15,6 +15,11 @@ import {
 } from "./state.js";
 import { postMessage } from "./board.js";
 import { resolveModelForRole, getQuotaFallbackModel } from "./detector.js";
+import {
+  generateDynamicAgentTask,
+  resolveWorkerCommandForHarness,
+  buildWorkerEnvForHarness,
+} from "./harness.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -179,48 +184,15 @@ async function copyWorktreeBack(worktreeDir: string, rootDir: string): Promise<v
  * Formats structured task instructions, system prompts, file locks, and blackboard memory
  * into the AGENT_TASK.md task specification.
  */
-export function generateAgentTaskContent(agent: AgentNode, state: SwarmState): string {
-  const targetFilesList =
-    agent.targetFiles && agent.targetFiles.length > 0
-      ? agent.targetFiles.map((f) => `- ${f}`).join("\n")
-      : "None specified";
-
-  return `# Agent Task Assignment
-
-**Agent ID:** ${agent.id}
-**Role:** ${agent.role}
-**Mission:** ${state.mission}
-
-## System Prompt
-${agent.systemPrompt || "N/A"}
-
-## Task Specification
-${agent.taskSpec}
-
-## Target Files (Locked)
-${targetFilesList}
-
-## Blackboard Memory Context
-\`\`\`json
-${JSON.stringify(state.blackboard || {}, null, 2)}
-\`\`\`
-
-## Completion Instructions
-When your task is complete, call the MCP tool:
-\`\`\`json
-{
-  "name": "complete_agent_task",
-  "arguments": {
-    "agentId": "${agent.id}",
-    "summary": "<concise summary of changes made>"
-  }
-}
-\`\`\`
-Or run the CLI command:
-\`\`\`bash
-swarm-engine complete ${agent.id} "<summary>"
-\`\`\`
-`;
+/**
+ * Generates dynamic agent task content customized for the active agent harness.
+ */
+export function generateAgentTaskContent(
+  agent: AgentNode,
+  state: SwarmState,
+  cwd: string = process.cwd()
+): string {
+  return generateDynamicAgentTask(agent, state, cwd);
 }
 
 /**
@@ -443,37 +415,23 @@ export async function tickScheduler(cwd: string = process.cwd()): Promise<void> 
           agent.branchName = `swarm/${agent.id}`;
         }
 
-        // 5. Spawn background worker if workerCommand or SWARM_AUTO_RUN is enabled
-        const workerCmd = state.workerCommand || process.env.SWARM_WORKER_CMD;
+        // 5. Spawn dynamic background worker according to agent harness
+        const workerCmd = resolveWorkerCommandForHarness(agent, state, cwd);
         if (workerCmd) {
           try {
+            const workerEnv = buildWorkerEnvForHarness(agent, state, cwd);
             const child = spawn(workerCmd, {
               cwd: worktreePath,
               shell: true,
               detached: true,
               stdio: "ignore",
+              env: workerEnv,
             });
             child.unref();
             agent.pid = child.pid;
           } catch (spawnErr) {
             console.error(
-              `[swarm-engine] Error spawning worker for agent ${agent.id}:`,
-              spawnErr
-            );
-          }
-        } else if (process.env.SWARM_AUTO_RUN === "1" || process.env.SWARM_AUTO_RUN === "true") {
-          try {
-            const cliPath = path.resolve(__dirname, "index.js");
-            const child = spawn(process.execPath, [cliPath, "worker", agent.id], {
-              cwd: worktreePath,
-              detached: true,
-              stdio: "ignore",
-            });
-            child.unref();
-            agent.pid = child.pid;
-          } catch (spawnErr) {
-            console.error(
-              `[swarm-engine] Error spawning autonomous runner for agent ${agent.id}:`,
+              `[swarm-engine] Error spawning dynamic worker for agent ${agent.id}:`,
               spawnErr
             );
           }

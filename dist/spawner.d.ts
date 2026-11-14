@@ -12,7 +12,10 @@ export declare const hasHeadCommit: typeof hasGitHead;
  * Formats structured task instructions, system prompts, file locks, and blackboard memory
  * into the AGENT_TASK.md task specification.
  */
-export declare function generateAgentTaskContent(agent: AgentNode, state: SwarmState): string;
+/**
+ * Generates dynamic agent task content customized for the active agent harness.
+ */
+export declare function generateAgentTaskContent(agent: AgentNode, state: SwarmState, cwd?: string): string;
 /**
  * Creates an isolated working directory for an agent.
  * Uses a Git worktree (`git worktree add -B swarm/<agentId>`) if in a Git repo with commits,

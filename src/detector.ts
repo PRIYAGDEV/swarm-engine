@@ -767,3 +767,12 @@ export async function detectActiveModels(cwd: string = process.cwd()): Promise<D
 
   return syncResult;
 }
+
+export {
+  detectAgentHarness,
+  generateDynamicAgentTask,
+  resolveWorkerCommandForHarness,
+  buildWorkerEnvForHarness,
+  AgentHarnessType,
+  AgentHarnessInfo,
+} from "./harness.js";
