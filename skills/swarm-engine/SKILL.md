@@ -245,7 +245,7 @@ Swarm Engine guarantees four unbreakable safeguards:
 1. **Safeguard 1 — Pure JSON-RPC Frame Framing**:
    In MCP mode, diagnostic logs and status updates are strictly redirected to `stderr` (`console.error`). `stdout` is reserved exclusively for clean JSON-RPC protocol frames.
 2. **Safeguard 2 — Git History Hygiene & Zero-Diff Safety**:
-   Task assignment context (`AGENT_TASK.md`) is injected into the worktree during execution, but is purged before committing. All commits use `--allow-empty` to safely handle non-code tasks, and merges use `--no-ff`.
+   Task assignment context (`AGENT_TASK.md`) is injected for the agent during execution, but is purged before committing. All commits use `--allow-empty` to safely handle non-code tasks, and merges use `--no-ff`.
 3. **Safeguard 3 — Non-Git & Unborn Workspace Fallback**:
    If executed in an unborn git repository (0 commits) or a non-git directory, Swarm Engine falls back to safe directory-level isolation and copy-on-write mechanisms without crashing.
 4. **Safeguard 4 — Normalized Atomic Directory File Locks**:

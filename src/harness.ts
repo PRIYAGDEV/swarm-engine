@@ -289,19 +289,19 @@ export function generateDynamicAgentTask(
   const targetFilesList =
     agent.targetFiles && agent.targetFiles.length > 0
       ? agent.targetFiles.map((f) => `- \`${f}\``).join("\n")
-      : "None specified (Full worktree access)";
+      : "None specified (Full workspace access)";
 
   const header = `# Agent Task Assignment
 
 **Agent ID:** ${agent.id}
 **Role:** ${agent.role}
 **Model:** ${agent.model || "inherit"}
-**Workspace Mode:** ${agent.workspace || "share"}
+**Workspace Mode:** ${agent.workspace || "inherit"}
 **Mission:** ${state.mission}
 **Agent Harness:** ${harness.name} (${harness.type})
 
 ## System Prompt
-${agent.systemPrompt || "Execute assigned responsibilities within isolated worktree with strict verification."}
+${agent.systemPrompt || "Execute assigned responsibilities within project workspace with strict verification."}
 
 ## Task Specification
 ${agent.taskSpec}
@@ -338,14 +338,14 @@ You are running under **Google Antigravity**. Use the 4 native swarm tools:
      "arguments": { "memberName": "${agent.id}" }
    }
    \`\`\`
-5. **Task Completion**: Call \`complete_agent_task\` with \`agentId: "${agent.id}"\` to trigger clean worktree merging.
+5. **Task Completion**: Call \`complete_agent_task\` with \`agentId: "${agent.id}"\` upon finishing.
 `;
 
     case "claude-code":
       return `${header}
 ## Claude Code Execution Protocol
 You are executing in the **Claude Code** agent harness.
-1. Inspect files in this worktree using View/Read tools.
+1. Inspect files in this workspace using View/Read tools.
 2. Apply changes surgically with Edit tools.
 3. Validate changes by running automated tests via Bash (\`npm test\`, \`cargo test\`, etc.).
 4. When verified, call the \`complete_agent_task\` MCP tool or report your diff summary back to Claude.
@@ -355,7 +355,7 @@ You are executing in the **Claude Code** agent harness.
       return `${header}
 ## Kilo Code Execution Protocol
 You are executing in the **Kilo Code / Kilo CLI** agent harness.
-1. Execute file edits in this worktree using configured provider: \`${agent.model}\`.
+1. Execute file edits in this workspace using configured provider: \`${agent.model}\`.
 2. Ensure no file lock conflicts occur with other running subagents.
 3. Call \`complete_agent_task\` or run \`swarm-engine complete ${agent.id} "<summary>"\` when ready.
 `;
@@ -364,7 +364,7 @@ You are executing in the **Kilo Code / Kilo CLI** agent harness.
       return `${header}
 ## Roo Code / Cline Execution Protocol
 You are executing in the **Roo Code / Cline** agent harness under mode \`${agent.role}\`.
-1. Make targeted file changes inside this worktree directory.
+1. Make targeted file changes inside this workspace directory.
 2. Verify all modifications compile cleanly and satisfy the task specification.
 3. Call MCP tool \`complete_agent_task\` with \`agentId: "${agent.id}"\`.
 `;

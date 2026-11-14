@@ -10,13 +10,13 @@ Swarm Engine provides a full-featured Model Context Protocol (MCP) server over s
 |---|---|---|
 | `spawn_swarm` | Initializes mission and spawns 5 to 20+ initial subagents | Unbounded, `maxConcurrency: 0` default, parallel |
 | `add_dynamic_agent` | Injects an on-the-fly specialist agent mid-flight | Instant scheduling, zero queuing |
-| `pull_agent_task` | Claims or inspects assigned worktree task context | Returns worktree path, spec, locked files, blackboard |
+| `pull_agent_task` | Claims or inspects assigned agent task context | Returns workspace path, spec, locked files, blackboard |
 | `write_blackboard` | Stores shared types, schemas, and coordination keys | Auto-synced to all running `AGENT_TASK.md` |
-| `complete_agent_task` | Merges worktree, cleans branches, releases file locks | Triggers DAG scheduler for dependents |
+| `complete_agent_task` | Marks completed, cleans branches if used, releases locks | Triggers DAG scheduler for dependents |
 | `get_swarm_status` | Detailed snapshot of swarm state and active locks | Optional `detail: true` for full task specs |
 | `record_agent_action` | Streams live tool actions to Fable TUI | Reads, edits, diffs (+/-), shell commands |
 | `update_agent_progress`| Updates real-time telemetry | Poetic verbs, tokens, tok/s velocity |
-| `run_agent_task` | Launches autonomous agent execution in worktree | Background worker runner |
+| `run_agent_task` | Launches autonomous agent execution in workspace | Background worker runner |
 
 ---
 
@@ -46,7 +46,7 @@ Initializes and launches an unbounded multi-agent swarm. Assistant models are ex
     "parallel": {
       "type": "boolean",
       "default": true,
-      "description": "Run all agents simultaneously in parallel across isolated worktrees with zero queuing"
+      "description": "Run all agents simultaneously in parallel directly in the shared workspace with zero queuing (default: true)"
     },
     "strictDependencies": {
       "type": "boolean",
@@ -55,7 +55,7 @@ Initializes and launches an unbounded multi-agent swarm. Assistant models are ex
     },
     "workerCommand": {
       "type": "string",
-      "description": "Optional shell command executed to run detached workers in their worktrees"
+      "description": "Optional shell command executed to run detached workers"
     },
     "agents": {
       "type": "array",
@@ -188,7 +188,7 @@ Injects an on-the-fly specialist subagent mid-execution into the running swarm w
 ---
 
 ### 2.3 `pull_agent_task`
-Claims or inspects the next ready task or retrieves a specific agent's assigned worktree context.
+Claims or inspects the next ready task or retrieves a specific agent's assigned task context.
 
 #### Request Example
 ```json
@@ -264,7 +264,7 @@ Saves or updates a shared memory key (data contract, route mapping, schema) visi
 ---
 
 ### 2.5 `complete_agent_task`
-Commits worktree changes (`--allow-empty`), strips `AGENT_TASK.md`, cleanly merges to main (`--no-ff`), prunes the worktree directory and branch, releases file locks, and triggers the scheduler.
+Marks an agent's task completed, cleanly commits/merges if an optional worktree was used, releases file locks, and triggers the scheduler.
 
 #### Request Example
 ```json
@@ -388,7 +388,7 @@ Updates an agent's real-time telemetry: thought, poetic verb, tokens, and throug
 ---
 
 ### 2.9 `run_agent_task`
-Triggers autonomous worker execution for an agent inside its isolated worktree.
+Triggers autonomous worker execution for an agent inside its assigned workspace.
 
 #### Request Example
 ```json

@@ -4,71 +4,40 @@ This document provides a deep technical dive into the architecture, execution en
 
 ---
 
-## 1. Worktree Sandboxing & Isolation
+## 1. Direct Workspace Execution & Teamwork Parity (Zero Worktrees)
 
-Swarm Engine uses operating system-level workspace isolation via dedicated Git worktrees. This guarantees that multiple parallel subagents can modify code, execute compilers, run test suites, and produce intermediate artifacts simultaneously without interfering with each other.
+Swarm Engine matches Antigravity's native `/teamwork` and `/swarm` architecture by operating directly in the project repository (`workspace: "inherit"` by default) with **zero worktree overhead**. There are **no git worktrees created**, **no `.swarm/worktrees` directory**, and **no branch switching overhead**.
 
 ```
                     ┌────────────────────────┐
-                    │      Main Project      │
-                    │      (branch: main)    │
+                    │   Shared Project CWD   │
+                    │   (Direct Workspace)   │
                     └───────────┬────────────┘
                                 │
-       ┌────────────────────────┼────────────────────────┐
-       ▼                        ▼                        ▼
-┌──────────────┐         ┌──────────────┐         ┌──────────────┐
-│  Worktree 1  │         │  Worktree 2  │         │  Worktree N  │
-│ .swarm/wt/a1 │         │ .swarm/wt/a2 │         │ .swarm/wt/aN │
-│ (swarm/a1)   │         │ (swarm/a2)   │         │ (swarm/aN)   │
-└──────────────┘         └──────────────┘         └──────────────┘
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+ ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+ │   Worker 1   │        │   Worker 2   │        │   Worker N   │
+ │ src/schema.ts│        │src/routes.ts │        │test/user.ts  │
+ └──────────────┘        └──────────────┘        └──────────────┘
 ```
 
-### 1.1 Worktree Lifecycle
-1. **Creation**:
-   When an agent transitions from `pending` to `running`, Swarm Engine creates a dedicated Git worktree:
-   ```bash
-   git worktree add -B swarm/<agentId> .swarm/worktrees/<agentId> HEAD
-   ```
-   If a previous branch or worktree with that ID existed from an aborted run, Swarm Engine prunes the stale path and forces a clean checkout (`-B`).
+### 1.1 In-Place Collision-Free Execution
+1. **Design-Out Conflicts**:
+   Two workers editing the same file is the failure mode to design out, not to manage. The coordinator deconstructs the mission into distinct non-overlapping files or modules (`targetFiles`) before work begins (*"One worker per file, say who owns what before anyone starts"*).
+2. **Direct In-Place Editing**:
+   Workers read, inspect, and modify their assigned files directly in the repository root.
+3. **Atomic File Locks**:
+   File targets are locked in `.swarm/state.lock` so agents cannot reserve overlapping files concurrently.
+4. **Instant Completion**:
+   When an agent in direct workspace mode finishes (`complete_agent_task`), its file locks are released and downstream agents are triggered immediately—with zero git commit, merge, or branch operations required.
 
-2. **Context Injection (`AGENT_TASK.md`)**:
-   Immediately after creating the worktree, the engine writes an `AGENT_TASK.md` file into the root of `.swarm/worktrees/<agentId>/`. This file contains:
-   - Agent ID, assigned specialist role, and target model.
-   - Overall mission statement.
-   - Detailed task specification (`taskSpec`) and system prompt.
-   - List of authorized `targetFiles` locked for this agent.
-   - Latest snapshot of the shared blackboard memory.
-
-3. **Pre-Commit Task File Stripping (Safeguard 2)**:
-   When an agent completes (`complete_agent_task` or `swarm-engine complete`), the engine deletes `AGENT_TASK.md` before staging files:
-   ```typescript
-   const taskFile = path.join(worktreePath, "AGENT_TASK.md");
-   if (fs.existsSync(taskFile)) {
-     fs.unlinkSync(taskFile);
-   }
-   ```
-   This ensures that AI task instructions, ephemeral prompts, and blackboard dumps never enter Git commit history.
-
-4. **Zero-Diff Safe Commit & Clean Merge**:
-   The engine stages changes in the worktree and commits using `--allow-empty`:
-   ```bash
-   git add -A
-   git commit --allow-empty -m "swarm(<agentId>): <summary>"
-   ```
-   This avoids failures when an agent performs read-only audits, test executions, or verifications that produce no file modifications.
-
-5. **Sequential Clean Merge**:
-   The worktree branch is merged into the parent branch using `--no-ff`:
-   ```bash
-   git merge --no-ff -m "Merge swarm(<agentId>): <summary>" swarm/<agentId>
-   ```
-   Once merged, the worktree directory is pruned (`git worktree remove --force`) and the temporary branch is deleted (`git branch -D swarm/<agentId>`).
-
-### 1.2 Non-Git & Unborn Repository Fallback (Safeguard 3)
-In environments where Git is not installed, the repository is unborn (0 commits, HEAD unresolvable), or the workspace is a plain directory:
-- Swarm Engine detects the absence of a valid Git HEAD commit.
-- Instead of crashing, it creates `.swarm/worktrees/<agentId>` via recursive filesystem copying, excluding `.git`, `node_modules`, and `.swarm`.
-- On completion, modified and created files within the agent's declared `targetFiles` are copied back to the root project workspace, safely excluding `AGENT_TASK.md`.
+### 1.2 Optional Git Worktree Sandboxing (`workspace: "share"`)
+For users or testing environments that explicitly request isolated git branch experiments, Swarm Engine provides an optional worktree mode via `workspace: "share"`:
+- Creates a dedicated worktree at `.swarm/worktrees/<agentId>` on branch `swarm/<agentId>`.
+- Deletes `AGENT_TASK.md` before staging files to keep git history clean.
+- Merges into the parent branch with `--no-ff` and prunes the worktree directory upon completion.
+*(Direct workspace execution with zero worktrees remains the standard default).*
 
 ---
 

@@ -16,9 +16,9 @@ swarm-engine <subcommand> [options]
 | `run` / `start` | Launches autonomous multi-agent swarm execution with live Fable TUI. |
 | `status` | Renders swarm status as a visual dashboard, ASCII table, or JSON. |
 | `watch` | Auto-refreshing live terminal dashboard (aliases: `dashboard`, `tui`). |
-| `worker` | Runs an agent worker autonomously inside its isolated worktree. |
-| `complete` | Merges an agent's worktree to the main branch and releases file locks. |
-| `reset` | Prunes worktrees, removes `swarm/*` branches, and cleans locks/state. |
+| `worker` | Runs an agent worker autonomously inside its assigned workspace. |
+| `complete` | Marks an agent completed and releases file locks (cleanly merges worktree if used). |
+| `reset` | Cleans up state, temporary branches, and lockfiles. |
 | `mcp` | Starts the stdio Model Context Protocol (MCP) server. |
 
 ---
@@ -36,11 +36,11 @@ swarm-engine init [mission] [options]
   - `[mission]`: Optional string describing the overall swarm objective (default: `"Default Swarm Mission"`).
 - **Options**:
   - `--concurrency <num>`: Maximum concurrent running agents. Set to `0` for **infinite/unlimited concurrency** (default: `0`).
-  - `--worker <command>`: Shell command to execute background workers in their worktrees.
+  - `--worker <command>`: Shell command to execute background workers in the workspace.
   - `--leader-model, -lm <model>`: Model identifier for the orchestrator (auto-detected if omitted).
   - `--force, -f`: Overwrite existing `.swarm/state.json` if already initialized.
 - **Side Effects**:
-  - Creates `.swarm/` and `.swarm/worktrees/`.
+  - Creates `.swarm/`.
   - Safely appends `.swarm/` and `AGENT_TASK.md` to `.gitignore`.
   - Generates `AGENTS.md` containing operational guidance for AI agents.
 
@@ -109,17 +109,15 @@ swarm-engine complete <agentId> [summary]
   - `<agentId>` (required): The unique identifier of the agent (e.g. `worker-1`).
   - `[summary]`: Optional text describing accomplishments, changes made, and test results.
 - **Execution Lifecycle**:
-  1. Deletes `AGENT_TASK.md` so prompts never pollute git history.
-  2. Commits worktree changes using `--allow-empty`.
-  3. Merges the worktree branch into the base branch using `--no-ff`.
-  4. Prunes the `.swarm/worktrees/<agentId>` directory and deletes the branch `swarm/<agentId>`.
-  5. Releases all held file locks in `.swarm/state.json`.
-  6. Advances dependent agents from `pending` to `running`.
+  1. Releases all held file locks in `.swarm/state.json`.
+  2. If an optional worktree was used, deletes `AGENT_TASK.md`, commits changes using `--allow-empty`, merges with `--no-ff`, and prunes the worktree directory.
+  3. Updates agent status to `completed`.
+  4. Advances dependent agents from `pending` to `running`.
 
 ---
 
 ### 2.6 `reset`
-Resets the swarm environment, cleaning up all worktrees, temporary branches, and lockfiles.
+Resets the swarm environment, cleaning up temporary branches, worktrees, and lockfiles.
 
 ```bash
 swarm-engine reset [options]
@@ -129,15 +127,14 @@ swarm-engine reset [options]
   - `--hard, -f`: Forces reset without confirmation prompts.
   - `--keep-blackboard`: Preserves shared memory keys on the blackboard while resetting agents and locks.
 - **Execution Actions**:
-  - Invokes `git worktree prune` and force-deletes all `swarm/*` Git branches.
-  - Recursively removes `.swarm/worktrees/`.
+  - Cleans up any optional worktrees and force-deletes `swarm/*` Git branches.
   - Removes `.swarm/state.lock`.
   - Re-initializes `.swarm/state.json` to an idle, clean baseline.
 
 ---
 
 ### 2.7 `worker`
-Executes an agent's task autonomously inside its assigned worktree.
+Executes an agent's task autonomously inside its assigned workspace.
 
 ```bash
 swarm-engine worker <agentId>
@@ -146,7 +143,7 @@ swarm-engine worker <agentId>
 - **Arguments**:
   - `<agentId>` (required): ID of the agent to execute.
 - **Behavior**:
-  - Reads task instructions from `.swarm/worktrees/<agentId>/AGENT_TASK.md`.
+  - Reads task instructions from the assigned workspace.
   - Executes tool actions, file inspections, and edits.
   - Calls `complete_agent_task` upon finish.
 

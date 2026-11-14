@@ -2,7 +2,7 @@
 
 This guide provides concrete, battle-tested prompt decomposition templates for deploying **5, 10, 15, and 20+ specialized parallel subagents** with Swarm Engine.
 
-All templates leverage **infinite concurrency** (`maxConcurrency: 0`) and **zero queuing** across isolated Git worktrees, ensuring zero file collisions through non-overlapping `targetFiles`.
+All templates leverage **infinite concurrency** (`maxConcurrency: 0`) and **zero queuing** with direct in-place workspace execution (matching Antigravity Teamwork & Swarm with zero worktrees), ensuring zero file collisions through non-overlapping `targetFiles`.
 
 ---
 
@@ -141,4 +141,4 @@ When migrating a legacy monolithic application to a modular architecture, Swarm 
 21. `mono-21` (`telemetry_engineer`): `src/telemetry/openTelemetry.ts` — Distributed tracing and Prometheus metrics.
 22. `mono-22` (`devops_pipeline_engineer`): `.github/workflows/ci.yml`, `docker-compose.yml` — Multi-stage CI pipeline.
 
-All 22 agents execute **concurrently** in `.swarm/worktrees/mono-01` through `mono-22`. Because every file target is isolated, all 22 agents complete without a single merge conflict!
+All 22 agents execute **concurrently** directly in the shared workspace (`workspace: "inherit"`). Because every file target is isolated and non-overlapping, all 22 agents complete in parallel with zero collisions and zero worktree bloat!

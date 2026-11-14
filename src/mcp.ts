@@ -103,7 +103,7 @@ export function createMcpServer(): McpServer {
   // Tool 1: spawn_swarm
   server.tool(
     "spawn_swarm",
-    "Initialize and launch an unbounded multi-agent swarm with as many specialized subagents as required by the mission (e.g. 5, 10, 15, 20+ parallel workers) with zero queuing and infinite concurrency (maxConcurrency: 0 by default). Decompose complex problems into specialized roles with non-overlapping targetFiles to maximize parallel throughput across isolated git worktrees.",
+    "Initialize and launch an unbounded multi-agent swarm with as many specialized subagents as required by the mission (e.g. 5, 10, 15, 20+ parallel workers) with zero queuing and infinite concurrency (maxConcurrency: 0 by default). Decompose complex problems into specialized roles with non-overlapping targetFiles to maximize parallel throughput directly in the project workspace (matching Antigravity Teamwork & Swarm with zero worktree overhead).",
     {
       mission: z.string().describe("Overall mission statement or goal for the swarm"),
       leaderModel: z
@@ -121,7 +121,7 @@ export function createMcpServer(): McpServer {
         .boolean()
         .optional()
         .default(true)
-        .describe("Run all agents simultaneously in parallel across isolated worktrees with zero queuing (default: true)"),
+        .describe("Run all agents simultaneously in parallel directly in the shared workspace with zero queuing (default: true)"),
       strictDependencies: z
         .boolean()
         .optional()
@@ -130,7 +130,7 @@ export function createMcpServer(): McpServer {
       workerCommand: z
         .string()
         .optional()
-        .describe("Optional shell command executed to run detached workers in their worktrees"),
+        .describe("Optional shell command executed to run detached workers"),
       agents: z
         .array(
           z.object({
@@ -143,7 +143,7 @@ export function createMcpServer(): McpServer {
               .array(z.string())
               .optional()
               .default([])
-              .describe("Optional list of agent IDs for collaboration context and blackboard sharing. In parallel mode (default), agents run concurrently in their isolated worktrees."),
+              .describe("Optional list of agent IDs for collaboration context and blackboard sharing. In parallel mode (default), agents run concurrently in the shared workspace."),
             targetFiles: z
               .array(z.string())
               .optional()
@@ -152,12 +152,12 @@ export function createMcpServer(): McpServer {
             workspace: z
               .string()
               .optional()
-              .describe("Workspace isolation mode: 'inherit' (shared root), 'share' (git worktree), 'branch' (isolated clone)"),
+              .describe("Workspace isolation mode: 'inherit' (shared project directory - default, matching Antigravity Teamwork & Swarm with zero worktrees), 'share' (optional git worktree), 'branch' (isolated clone)"),
           })
         )
         .optional()
         .default([])
-        .describe("List of initial agent definitions. Assistant models are explicitly encouraged to decompose complex missions into 5 to 20+ specialized subagents (e.g., architect, backend, frontend, database, auth, testing, perf, docs, security) running concurrently in parallel with zero queuing across isolated git worktrees."),
+        .describe("List of initial agent definitions. Assistant models are explicitly encouraged to decompose complex missions into 5 to 20+ specialized subagents (e.g., architect, backend, frontend, database, auth, testing, perf, docs, security) running concurrently in parallel with zero queuing directly in the workspace."),
     },
     async ({ mission, leaderModel, maxConcurrency, parallel, strictDependencies, workerCommand, agents }) => {
       try {
@@ -284,7 +284,7 @@ export function createMcpServer(): McpServer {
   // Tool 2: add_dynamic_agent
   server.tool(
     "add_dynamic_agent",
-    "Dynamically inject an on-the-fly specialist subagent mid-execution into the running swarm. Can be called repeatedly to scale the swarm to 20+ agents as new subtasks, bugs, or refactorings are discovered. Injects directly into an isolated worktree with zero queuing.",
+    "Dynamically inject an on-the-fly specialist subagent mid-execution into the running swarm. Can be called repeatedly to scale the swarm to 20+ agents as new subtasks, bugs, or refactorings are discovered. Injects directly into the shared workspace with zero queuing (matching Antigravity Teamwork & Swarm).",
     {
       id: z.string().optional().describe("Optional unique agent ID"),
       role: z.string().describe("Role or specialization of the dynamic agent (e.g., 'database_migrator', 'security_auditor', 'performance_tuner'). Specify narrow, well-defined responsibilities with non-overlapping targetFiles."),
@@ -304,7 +304,7 @@ export function createMcpServer(): McpServer {
       workspace: z
         .string()
         .optional()
-        .describe("Workspace isolation mode: 'inherit' (shared root), 'share' (git worktree), 'branch' (isolated clone)"),
+        .describe("Workspace isolation mode: 'inherit' (shared project directory - default, matching Antigravity Teamwork & Swarm with zero worktrees), 'share' (optional git worktree), 'branch' (isolated clone)"),
     },
     async ({ id, role, model, taskSpec, systemPrompt, dependsOn, targetFiles, workspace }) => {
       try {
@@ -413,7 +413,7 @@ export function createMcpServer(): McpServer {
   // Tool 3: pull_agent_task
   server.tool(
     "pull_agent_task",
-    "Claim or view the next ready task or inspect a specific agent's assigned task, returning worktree path, task spec, system prompt, target files, and blackboard memory.",
+    "Claim or view the next ready task or inspect a specific agent's assigned task, returning workspace path, task spec, system prompt, target files, and blackboard memory.",
     {
       agentId: z
         .string()
@@ -610,7 +610,7 @@ export function createMcpServer(): McpServer {
   // Tool 5: complete_agent_task
   server.tool(
     "complete_agent_task",
-    "Commit worktree changes, cleanly merge to main, delete worktree and branch, release file locks, update agent status to 'completed', and trigger the DAG scheduler for downstream agents.",
+    "Mark agent task completed, cleanly commit/merge if worktree was used, release file locks, update agent status to 'completed', and trigger the DAG scheduler for downstream agents.",
     {
       agentId: z.string().describe("ID of the agent that has finished its task"),
       summary: z.string().optional().describe("Summary of changes made, accomplishments, and notes"),
@@ -821,7 +821,7 @@ export function createMcpServer(): McpServer {
   // Tool 9: run_agent_task
   server.tool(
     "run_agent_task",
-    "Triggers autonomous worker execution for an agent inside its isolated worktree (inspects files, applies edits, runs bash checks, merges on finish).",
+    "Triggers autonomous worker execution for an agent inside its assigned workspace directory (inspects files, applies edits, runs bash checks, completes on finish).",
     {
       agentId: z.string().describe("Target agent ID to execute"),
     },
@@ -1270,7 +1270,7 @@ export function createMcpServer(): McpServer {
       workspace: z
         .enum(["inherit", "share", "branch"])
         .optional()
-        .describe("Workspace isolation mode: 'inherit' (shared repo), 'share' (git worktree), or 'branch' (isolated clone)"),
+        .describe("Workspace isolation mode: 'inherit' (shared repo - default, matching Antigravity Teamwork & Swarm with zero worktrees), 'share' (optional git worktree), or 'branch' (isolated clone)"),
       wakeMode: z
         .string()
         .optional()
