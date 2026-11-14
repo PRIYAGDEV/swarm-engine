@@ -37,7 +37,7 @@ Activate the `swarm-engine` skill whenever a task requires multi-agent paralleli
 2. **Unbounded Specialist Decomposition**: When breaking down a mission into 5, 10, 15, or 20+ specialized agent roles (e.g. API architect, schema engineer, frontend designer, unit tester, security auditor, performance tuner, documentation author).
 3. **Collision-Free Concurrent Editing**: When multiple AI agents or background tasks need to edit the same repository simultaneously without overwriting files or producing git merge conflicts.
 4. **Isolated Build & Test Verification**: When running experimental refactorings, intensive test suites, or package builds in clean, disposable workspaces on dedicated branches (`swarm/<agentId>`).
-5. **Headless & Scripted Observability**: When inspecting swarm execution via canonical structured facts (`.swarm/view.json`), state cursors, and JSON status.
+5. **Multi-Branch Parallel Exploration**: When exploring alternative implementation architectures or competing hypotheses concurrently in parallel.
 
 ---
 
@@ -178,15 +178,39 @@ The monitor worker (`monitor`) wakes on a timer when the whole swarm has gone qu
 
 ---
 
-## 🚀 Autonomous Agent Workflow (CLI-First)
+## 🤖 Pure Agent Coordination Protocol (Skill-Only)
 
-For scripted headless workflows, automation scripts, and background harness runners, Swarm Engine provides direct CLI subcommands:
-- `swarm-engine init <mission>`: Initializes `.swarm/`, sets up `.git/info/exclude`, and creates `AGENTS.md`.
-- `swarm-engine run <mission>`: Executes headless swarm missions with zero queuing (`--concurrency 0`).
-- `swarm-engine status`: Reports tabular status of all active workers and file locks (`--json` for raw JSON).
-- `swarm-engine watch`: CLI status watch command for live monitoring.
-- `swarm-engine complete <agentId>`: Merges an agent's worktree back to `main` with `--no-ff` and prunes its branch.
-- `swarm-engine reset --hard`: Tears down all worktrees and restores a clean repository state.
+Swarm Engine operates strictly as an **autonomous AI Agent Skill**. As coordinator, you control and monitor the swarm directly through your tools inside the chat—no terminal windows, no TUI dashboards, and no manual commands required:
+
+1. **Initialize the Mission**: Name the swarm once the task is split:
+   ```json
+   { "action": "title", "title": "Database migration and controller endpoints" }
+   ```
+2. **Deploy Unbounded Workers**: Spawn parallel subagents for each piece with isolated worktrees:
+   ```json
+   {
+     "action": "add",
+     "name": "schema-author",
+     "workspace": "share",
+     "brief": "You own prisma/schema.prisma. Add the user audit models. Post diff summary when done."
+   }
+   ```
+3. **Dispatch & Coordinate via Board**: Direct workers using doorbells:
+   ```json
+   { "text": "@schema-author execute migration steps and verify schema compilation" }
+   ```
+4. **Zero-Token Sleep**: Sleep until workers post:
+   ```json
+   { "since": 4 }
+   ```
+5. **Inspect & Judge Results**: Read updates from the shared board:
+   ```json
+   { "since": 4 }
+   ```
+6. **Land Work Cleanly**: Kill completed workers to finalize their changes:
+   ```json
+   { "action": "kill", "name": "schema-author" }
+   ```
 
 ---
 

@@ -3,10 +3,10 @@
 # ⚡ Swarm Engine
 
 ### Turn your AI assistant into an entire engineering team.
-**Run 5 to 20+ specialized AI agents in parallel · Zero Git collisions · Live visual terminal dashboard**
+**A pure Agent Skill for Antigravity, Claude Code, Kilo, and Roo Code · Unbounded parallel subagents · Zero Git collisions · Zero TUI overhead**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 401 Passing](https://img.shields.io/badge/tests-401%20passing%20%7C%20100%25%20verified-brightgreen.svg)](test/)
+[![Tests: 79 Passing](https://img.shields.io/badge/tests-79%20passing%20%7C%20100%25%20verified-brightgreen.svg)](test/)
 [![Antigravity Parity: 100%](https://img.shields.io/badge/Google%20Antigravity%20Parity-100%25%20Exact-purple.svg)](#-google-antigravity--carbon-swarm-parity)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
@@ -14,11 +14,11 @@
 [![Concurrency: Unlimited](https://img.shields.io/badge/concurrency-%E2%88%9E%20unlimited-purple.svg)](#-how-does-it-work)
 
 <p align="center">
-  Tired of waiting for a single AI agent to write your code file by file?<br>
-  <b>Swarm Engine</b> spawns a coordinated squad of AI specialists—architects, frontend devs, backend devs, and test engineers—that work <b>simultaneously</b> on your codebase in isolated Git worktrees, with <b>zero merge conflicts</b> and a <b>live visual dashboard</b>.
+  Tired of single-agent bottlenecks or complex external terminal apps?<br>
+  <b>Swarm Engine</b> is a <b>pure AI Agent Skill</b> that empowers your AI assistant to act as a full <b>Swarm Coordinator</b>—spawning specialized subagents, isolating concurrent edits in Git worktrees, locking files atomically, and synchronizing on a shared message board inside chat.
 </p>
 
-[Quick Start (30 Seconds)](#-quick-start-in-30-seconds) • [How It Works](#-how-does-it-work) • [Using with Your AI Tool](#-using-with-your-favorite-ai-tool) • [Live Dashboard](#%EF%B8%8F-live-terminal-dashboard) • [FAQ](#-frequently-asked-questions)
+[Pure Skill Architecture](#-pure-agent-skill-architecture) • [How It Works](#-how-does-it-work) • [Using with Your AI Tool](#-using-with-your-favorite-ai-tool) • [FAQ](#-frequently-asked-questions)
 
 </div>
 
@@ -28,115 +28,64 @@
 
 | What Happens Normally | What Swarm Engine Does | Why You Win |
 |:---|:---|:---|
-| **One Agent at a Time**<br>Tasks run sequentially. 5 tasks take 5× longer. | **Unlimited Parallel Agents ($\infty$)**<br>Spawns 5 to 20+ subagents working simultaneously. | **5x to 10x faster execution**. No artificial queues. |
-| **Git Conflicts & Overwrites**<br>Agents edit the same files and corrupt code. | **Isolated Git Worktrees + File Locks**<br>Each agent gets a clean, private workspace and temporary branch. | **Zero git collisions.** Your `main` branch stays clean. |
-| **Locked into One Hardcoded Model**<br>Forced to use whatever model is hardcoded. | **Automatic Model Detection (Zero Quality Compromise)**<br>Automatically uses your active model from Antigravity (Gemini 4 Carbon), Claude Code (Claude 3.7 Sonnet), Kilo, or `.env`. | Uses **your exact model** without silent downgrades. |
-| **Complex MCP Config Files**<br>Debugging JSON files, stdio pipes, and paths. | **Native Agent Skill (Zero-Config)**<br>Installed everywhere on your PC automatically. | **No setup needed.** Just tell your AI to run a swarm. |
-| **Invisible Background Actions**<br>You stare at a spinner wondering what's happening. | **Live Fable 5.1 Terminal Dashboard**<br>Visual cards with real-time diffs, tools, and token speeds. | You see **every edit, read, and test** in real time. |
+| **One Agent at a Time**<br>Tasks run sequentially. 5 tasks take 5× longer. | **Unlimited Parallel Subagents ($\infty$)**<br>Decomposes missions into 5 to 20+ specialized subagents. | **5x to 10x faster execution**. True concurrent throughput. |
+| **Git Conflicts & Overwrites**<br>Agents edit the same files and corrupt code. | **Isolated Git Worktrees + File Locks**<br>Each author works in an isolated worktree (`workspace: "share"`). | **Zero git collisions.** Clean merge onto `main`. |
+| **Silent Down-Tiering to Weaker Models**<br>Coding workers downgraded to Flash/Mini. | **Automatic User Model Inheritance**<br>Coders automatically run on your session model (`Gemini 4 Carbon`, `Claude 3.7 Sonnet`). | **Zero quality compromise.** Never downgraded. |
+| **Clunky External TUIs & Terminal Apps**<br>Forced to run CLI commands and watch spinners. | **Pure Agent Skill (Nothing Else)**<br>Operated 100% natively inside your AI assistant's chat. | **Zero context switching.** No terminal windows needed. |
+| **Fragile Framework-Specific MCPs**<br>Bespoke configs that break across tools. | **Universal Dynamic Harness Support**<br>Automatically adapts to Antigravity, Claude Code, Kilo, and Roo. | **Works everywhere.** Install once, run anywhere. |
 
 ---
 
-## 🚀 Quick Start in 30 Seconds
+## 🎯 Pure Agent Skill Architecture
 
-### Step 1: Install Globally
-Install via npm so `swarm-engine` is available in every terminal:
+Swarm Engine is designed from the ground up as a **pure AI Agent Skill** (`SKILL.md`). There is no terminal dashboard to watch, no external TUI to run, and no manual CLI commands required.
 
-```bash
-npm install -g swarm-engine
-```
+Your AI assistant loads the skill and uses four standard tools:
 
-*(Or build locally: `git clone https://github.com/PRIYAGDEV/swarm-engine.git && cd Swarm-engine && npm install && npm run build && npm link`)*
-
-### Step 2: Run a Swarm on Your Project
-
-Open any terminal in your project directory and type:
-
-```bash
-# Launch a team of parallel agents on your mission
-swarm-engine run "Add Google authentication, create user database schema, and write unit tests"
-```
-
-### Step 3: Watch the Live Dashboard
-
-In another terminal window (or split pane), run:
-
-```bash
-swarm-engine watch
-```
-
-That's it! Your agents will split the work, code in parallel, test their changes, and merge cleanly into your repository.
+| Tool | What It Does |
+|:---|:---|
+| **`swarm`** | Manages the swarm: `title`, `add` (spawns workers), `models`, `model` (hot-swap), `kill`, and `channel`. |
+| **`post_message`** | Posts immutable messages to the shared message board (`.swarm/board.jsonl`) with `@doorbell` mentions. |
+| **`read_board`** | Reads messages, diff summaries, and test outputs filtered by sequence number (`since`) or channel. |
+| **`swarm_wait`** | Puts the coordinator to sleep with zero token consumption until a worker posts an update. |
 
 ---
 
-## 🖥️ Live Terminal Dashboard
+## 🚀 Using Swarm Engine as an Agent Skill
 
-When your swarm runs, Swarm Engine renders an interactive Fable-styled visual terminal interface:
-
-```text
-swarm-engine -> 3 × workers · ~/my-app                                            ↓ 242.0k · 12m 45s
-* swarm   lead orchestrator                                                workers : gpt-4o : claude-3-5
-● Final pass. Dispatching.
-● Mission: Multi-agent service refactoring and API migration
-● @worker-1 Fix lint errors and refactor codebase.
-◒ Orchestrating... (12m 45s · 242.0k tokens · esc to interrupt)
-────────────────────────────────────────────────────────────────────────────────────────────────────────
-╭ * worker-1 ──────────────── refactor_specialist · gpt-4o ╮ ╭ * worker-2 ─────────────────── test_engineer ╮
-│ ● Edit(src/services/auth.ts)                             │ │ ● Read(tests/auth.test.ts)                   │
-│  140 - let reps = 0                                      │ │   └ Read 94 lines                            │
-│   68 + const reps = 0                                    │ │ ● Bash(npm test auth)                        │
-│ ● Refactoring... (↓ 92.0k · 78 tok/s)                    │ │ ● Testing... (↓ 124.0k · 110 tok/s)          │
-╰──────────────────────────────────────────────────────────╯ ╰──────────────────────────────────────────────╯
-╭ * worker-3 ────────────────────────────── cleanup_agent ╮
-│ ● Read(src/ui/Component.tsx)                             │
-│   └ Read 160 lines                                       │
-│ ● Simmering... (↓ 26.0k · 44 tok/s)                      │
-╰──────────────────────────────────────────────────────────╯
-[swarm-engine] 0:agents* 1:orchestrator ● 1/3 done · +142 -38 lines · 1 active lock       q: quit  r: refresh
-```
-
-### What You See in the Dashboard:
-* **Agent Cards**: Each worker gets its own card showing its role and active model.
-* **Live Action Log**: Shows exactly what tool the agent is running right now (`Edit`, `Read`, `Bash`).
-* **Visual Git Diff Bars**: Red/green diff counters showing lines added and removed.
-* **Telemetry**: Real-time token usage and generation speed (`tok/s`).
-* **Active Locks**: Which files are currently reserved to prevent collisions.
-
----
-
-## 🛠️ Using with Your Favorite AI Tool
-
-Swarm Engine works out of the box with the most popular AI coding assistants. You don't even need to configure MCP—it runs as a native **Agent Skill**!
+Swarm Engine installs natively as an Agent Skill across all major AI agent environments:
 
 <details open>
-<summary><b>🤖 Using with Kilo Code / Kilo CLI</b></summary>
+<summary><b>⚡ Using with Google Antigravity / Gemini 4 Carbon</b></summary>
 
-1. **Auto Model Detection**: Swarm Engine reads your `~/.config/kilo/kilo.jsonc` file automatically. If you're using `MiniMax-M2.7`, `GLM-5.3-Flash`, or `DeepSeek`, your swarm agents will automatically use that exact model!
-2. **Skill Included**: The skill is installed at `~/.config/kilo/skills/swarm-engine`.
-3. **Usage in Kilo**: Just type in your Kilo chat:
-   > *"Run a swarm to build the login screen, API service, and auth tests in parallel"*
+1. Pre-installed globally at `~/.gemini/config/skills/swarm-engine/SKILL.md`.
+2. Antigravity discovers the skill and activates the Swarm Coordinator protocol.
+3. Simply instruct Antigravity in chat:
+   > *"Run a swarm to build the authentication service, database models, and unit tests in parallel"*
+4. The coordinator automatically uses your active session model (e.g. `Gemini 4 Carbon` or `Gemini 3.8 Pro`) for all technical coders.
 </details>
 
 <details>
 <summary><b>🟣 Using with Claude Code</b></summary>
 
-1. The skill is installed at `~/.claude/skills/swarm-engine`.
-2. Claude Code will automatically invoke `swarm-engine run` to break complex multi-file tasks into parallel subagents.
-3. You can also trigger it manually from Claude Code by running `!swarm-engine run "..."`.
+1. Installed at `~/.claude/skills/swarm-engine/SKILL.md`.
+2. Claude Code automatically delegates multi-file tasks into parallel subagents inside isolated worktrees.
+3. Technical workers automatically inherit `Claude 3.7 Sonnet` without quality compromise.
 </details>
 
 <details>
-<summary><b>💻 Using with Cursor</b></summary>
+<summary><b>🤖 Using with Kilo Code / Kilo CLI</b></summary>
 
-1. Open your integrated terminal in Cursor (`Ctrl + ~`).
-2. Run `swarm-engine run "your task"` in the terminal.
-3. Keep Cursor's editor open on your main code—agents work in background `.swarm/worktrees/` without disrupting what you're viewing, and merge cleanly when finished!
+1. Installed at `~/.config/kilo/skills/swarm-engine/SKILL.md`.
+2. Kilo reads your active model directly from `kilo.jsonc` (e.g. `MiniMax-M2.7`, `GLM-5.3-Flash`, `DeepSeek`).
+3. Agents run concurrently with zero file collisions.
 </details>
 
 <details>
-<summary><b>⚡ Using with Antigravity / Gemini</b></summary>
+<summary><b>💻 Using with Roo Code / Cline</b></summary>
 
-1. Pre-installed globally at `~/.gemini/config/skills/swarm-engine`.
-2. Antigravity detects the skill and automatically delegates multi-agent tasks directly to Swarm Engine.
+1. Installed at `~/.roo/skills/swarm-engine/SKILL.md`.
+2. Operates via shared workspace protocols and isolated branches.
 </details>
 
 ---
@@ -144,27 +93,28 @@ Swarm Engine works out of the box with the most popular AI coding assistants. Yo
 ## ⚙️ How Does It Work?
 
 ```text
-                 Your Mission Prompt
+               User Request in Chat
                          │
                          ▼
              ┌────────────────────────┐
-             │   DAG Auto-Scheduler   │
-             │   (Zero Queuing)       │
+             │   Coordinator Agent    │  (Uses swarm-engine skill)
+             │   (Sizes & Splits DAG) │
              └───────────┬────────────┘
                          │
          ┌───────────────┼───────────────┐
          ▼               ▼               ▼
    ┌───────────┐   ┌───────────┐   ┌───────────┐
-   │ Agent 1   │   │ Agent 2   │   │ Agent 3   │  ... (up to 20+ agents)
-   │ Frontend  │   │ Backend   │   │ Tests     │
+   │  Worker 1 │   │  Worker 2 │   │  Worker 3 │  ... (5 to 20+ parallel agents)
+   │  Schema   │   │  API Dev  │   │  Tests    │
    └─────┬─────┘   └─────┬─────┘   └─────┬─────┘
          │               │               │
-   Worktree 1      Worktree 2      Worktree 3     (Isolated Git folders)
+     Worktree 1      Worktree 2      Worktree 3   (Isolated Git worktrees)
          │               │               │
          └───────────────┼───────────────┘
                          ▼
              ┌────────────────────────┐
-             │  Shared Blackboard Bus │  (Passes API types & schemas)
+             │  Shared Message Board  │  (Doorbell @mentions & topic channels)
+             │  (.swarm/board.jsonl)  │
              └───────────┬────────────┘
                          ▼
              ┌────────────────────────┐
@@ -172,159 +122,65 @@ Swarm Engine works out of the box with the most popular AI coding assistants. Yo
              └────────────────────────┘
 ```
 
-1. **Decompose**: The mission is split into specialist roles (e.g. 5 to 20+ subagents).
-2. **Isolate**: Each agent gets its own clean directory (`.swarm/worktrees/<agentId>`) on a dedicated Git branch.
-3. **Protect**: If Agent 1 is editing `auth.ts`, an atomic file lock prevents Agent 2 from touching it until Agent 1 finishes.
-4. **Communicate**: Agents share API schemas and database models through a shared **in-memory Blackboard**.
-5. **Merge**: When an agent finishes, its temporary prompt files are deleted, changes are merged cleanly into `main`, and the worktree is cleaned up.
+1. **Size & Split**: The coordinator deconstructs the mission into independent pieces (one per file, layer, or target).
+2. **Isolate**: Authors are added with `workspace: "share"`, receiving dedicated Git worktrees on branch `swarm/<name>`.
+3. **Protect**: Atomic directory file locks (`.swarm/state.lock`) prevent workers from touching the same file simultaneously.
+4. **Coordinate**: Workers communicate via `@doorbell` mentions on the shared message board.
+5. **Land**: When tasks complete, work is verified, merged cleanly to `main` with `--no-ff`, and worktrees are cleaned up.
 
 ---
 
-## 📋 Simple Command Cheat Sheet
+## 🔮 Google Antigravity & Carbon Parity (Enhanced)
 
-Everything you need to control Swarm Engine in your terminal:
+Swarm Engine delivers **100% architectural parity** with Google Antigravity's native `/swarm` and `/teamwork` skills, enhanced with production-grade isolation:
 
-| Goal | Command | What It Does |
-|:---|:---|:---|
-| **Start a Swarm** | `swarm-engine run "My Mission"` | Spawns parallel agents and starts coding. |
-| **Watch Progress** | `swarm-engine watch` | Opens the real-time Fable terminal dashboard. |
-| **Check Status** | `swarm-engine status` | Prints a snapshot table of all agents and active locks. |
-| **Status for Scripts** | `swarm-engine status --json` | Outputs clean JSON for scripting and automation. |
-| **Reset / Clean Up** | `swarm-engine reset --hard` | Safely removes all worktrees, branches, and locks. |
-| **Sync Skills Everywhere**| `npm run sync:skills` | Re-syncs the skill to Kilo, Claude, Cursor, Antigravity, etc. |
+1. **Automatic Teamwork Model Inheritance (Zero Quality Compromise)**:
+   - Technical coders, builders, and authors automatically inherit your active conversation model (`Gemini 4 Carbon`, `Claude 3.7 Sonnet`, `Gemini 3.8 Pro`).
+   - Operational stall monitors and narrators automatically use `flash_lite` to save quota during background checks.
+   - Down-tiering to smaller models is strictly opt-in.
+2. **Doorbell Mentions & Monotonic Sequences**:
+   - Every message is given a sequential `#seq` ID (`#1`, `#2`, `#3`).
+   - Mentioning `@name` wakes only that worker from `swarm_wait`.
+   - Mentioning `@all` broadcasts to all active workers.
+   - Channel mentions (`@#ui`) alert only subscribers to that topic stream.
+3. **Workspace Isolation & Fallback**:
+   - `inherit`: Shared working directory for readers and verifiers.
+   - `share`: Isolated Git worktrees for parallel authors.
+   - `branch`: Independent clones for experimental refactoring.
+   - Non-Git fallback for directories without Git history.
+4. **Stall Watchdog (`monitor`)**:
+   - An independent monitor wakes when the swarm goes quiet and alerts `@coordinator [stall]` with the specific stuck sequence numbers.
 
 ---
 
 ## ❓ Frequently Asked Questions
 
 <details>
-<summary><b>Q: Will Swarm Engine mess up my Git branches or commit history?</b></summary>
+<summary><b>Q: Do I need to run a CLI command or watch a terminal?</b></summary>
 
-**No.** Swarm Engine was specifically engineered to protect your Git repository:
-1. Every subagent works on an isolated temporary branch inside its own Git worktree folder (`.swarm/worktrees/`).
-2. Task prompt files (`AGENT_TASK.md`) are deleted **before** commits are created so they never enter your Git history.
-3. When finished, changes are merged cleanly using `--no-ff` and temporary branches are automatically deleted.
+**No.** Swarm Engine is a pure Agent Skill. You interact with your AI assistant in chat as usual. The assistant activates the skill, splits the work, and manages the swarm autonomously.
 </details>
 
 <details>
-<summary><b>Q: Why were my agents waiting / queued before, and are they parallel now?</b></summary>
+<summary><b>Q: Will Swarm Engine mess up my Git repository?</b></summary>
 
-In previous versions, swarms had a low default concurrency limit (e.g. 4) and strict sequential dependency chains. In the current version:
-- **Concurrency is infinite ($\infty$) by default** (`maxConcurrency: 0`).
-- **Zero queuing**: All agents without an explicit file lock collision start immediately in parallel.
+**No.** Every parallel author works in an isolated Git worktree on a temporary branch (`swarm/<name>`). When an author finishes, changes are merged cleanly into `main` using `--no-ff`, temporary branches are deleted, and worktree directories are safely pruned.
 </details>
 
 <details>
-<summary><b>Q: How does it know which model to use?</b></summary>
+<summary><b>Q: How does it prevent agents from overwriting each other's code?</b></summary>
 
-Swarm Engine contains an intelligent automatic model detector ([`src/detector.ts`](src/detector.ts)) matching Antigravity Teamwork:
-- **Google Antigravity**: Discovers your active model from `<USER_SETTINGS_CHANGE>` conversation transcripts (`Gemini 4 Carbon`, `Gemini 3.8 Pro`, `Gemini 3.8 Flash (High)`).
-- **Zero Quality Compromise**: Coders, builders, and technical workers automatically run on your full active model without being downgraded to smaller models.
-- **Kilo Code / Kilo CLI**: Reads your active model directly from `~/.config/kilo/kilo.jsonc` (e.g. `MiniMax-M2.7`, `GLM-5.3-Flash`, `DeepSeek`).
-- **Claude Code**: Discovers models from Claude settings (`Claude 3.7 Sonnet`, `Claude 3.5 Sonnet`).
-- **Workspace `.env`**: Honors `SWARM_LEADER_MODEL`, `GEMINI_MODEL`, `ANTHROPIC_MODEL`, and `MODEL`.
-- You never get stuck with the wrong or downgraded model.
+Swarm Engine uses atomic POSIX/Windows directory file locks (`.swarm/state.lock`). If Worker 1 is editing `auth.ts`, Worker 2 is blocked from reserving `auth.ts` until Worker 1 finishes and releases the lock.
 </details>
 
 <details>
-<summary><b>Q: Do I need to configure MCP (Model Context Protocol)?</b></summary>
+<summary><b>Q: How do I re-sync skills across my machine?</b></summary>
 
-**No!** While Swarm Engine includes a full MCP server (`swarm-engine mcp`), we recommend using it as an **Agent Skill**. AI tools can simply call `swarm-engine run` via their terminal tools without managing background servers or fragile JSON configs.
+Run `npm run sync:skills` from the project repository to synchronize the canonical `SKILL.md` across Antigravity, Claude Code, Kilo, DeepSeek, and Roo Code.
 </details>
-
-<details>
-<summary><b>Q: What if I don't use Git or my repo has 0 commits?</b></summary>
-
-Swarm Engine has an automatic **Non-Git Fallback**. If you are outside a Git repository, it uses atomic filesystem directory snapshotting to provide the exact same safety and isolation guarantees without throwing errors.
-</details>
-
----
-
-## 🔮 Google Antigravity & Carbon `/swarm` Parity
-
-Swarm Engine provides **100% exact architectural and behavioral parity** with Google Antigravity Teamwork and Gemini 4 Carbon's `/swarm` feature (`native_swarm` and `swarm_monitor` skills).
-
-### Core Parity Features:
-1. **Native 4-Tool Surface**:
-   - `swarm`: Unified command (`status`, `models`, `add`, `model`, `kill`, `title`, `channel`).
-   - `post_message`: Append-only monotonic sequence allocator writing NDJSON to `.swarm/board.jsonl`.
-   - `read_board`: Sequence- and channel-filtered reading with member status snapshots.
-   - `swarm_wait`: Zero-token blocking sleep that pauses agents until awoken by targeted doorbells.
-2. **6-State Canonical Lifecycle**:
-   - `waiting` ↔ `working` ↔ `stopped` → `completed` / `failed` / `killed` with strict irreversible terminal transition protection.
-3. **Doorbell Wakeup Addressing**:
-   - `@name` (direct mentions), `@worker` (numbered pool targeting), `@all` (broadcasts), and `@#channel` (topic stream alerts).
-4. **Multi-Mode Workspace Isolation**:
-   - `inherit`: Shared root working copy for zero-copy inspection/verification.
-   - `share`: Dedicated Git worktrees on independent branches (`swarm/<name>`) for parallel code authors.
-   - `branch`: Isolated clones for deep refactors.
-   - Auto-stashing dirty root changes before merge and clean-popping after merge with pre-merge boundary checks and conflict-resilient aborts.
-5. **Hierarchical Helper Subagents & Dynamic Operations**:
-   - Scoped subagents (`parentId`, `helperIds`) with cascading termination.
-   - Live model hot-swapping at runtime without process termination.
-   - Warm context forking (`fork: "<member>"` or `"coordinator"`) inheriting system prompts, briefs, models, and roles.
-6. **Autonomous Stall Monitor & Real-Time Telemetry**:
-   - Canonical `view.json` generator strictly capped at <64KB for the UI / dashboard.
-   - State cursor tracking (`lastPostSeq`, `lastReadSeq`, `waitSince`, `wakeMode`, `channels`).
-   - Background stall detector diagnosing quiet swarms, dead PIDs, and orphaned locks, pinging `@coordinator [stall]`.
-
----
-
-## 🧪 Battle-Tested Quality
-
-Swarm Engine has been rigorously validated against real-world race conditions, high-concurrency swarms, and adversarial edge cases:
-
-- **401 / 401 Tests Passing (100% Success Rate, 0 Failures)**:
-  - Baseline Platform Suite (`npm test`): **59/59 Passed**
-  - Milestone 1 — Shared Message Board (`test_board.mjs`): **71/71 Passed**
-  - Milestone 2 — Dynamic Lifecycle & Spawning (`test_lifecycle.mjs`): **63/63 Passed**
-  - Milestone 3 — Workspaces & Safe Merging (`test_workspaces.mjs`): **52/52 Passed**
-  - Milestone 4 — Structured Telemetry & Cursors (`test_telemetry.mjs`): **41/41 Passed**
-  - Milestone 5 — Recovery & Stall Fault Tolerance (`test_recovery.mjs`): **52/52 Passed**
-  - Milestone 6 — Real-World Workflows (`test_e2e_antigravity_parity.mjs`): **34/34 Passed**
-  - Challenger Stress & Fork-Storm Suites: **29/29 Passed**
-- **Zero Security Vulnerabilities** (`npm audit`).
-
-```bash
-# Run baseline test suite
-npm test
-
-# Run full milestone test suites
-node --test test/test_board.mjs
-node --test test/test_lifecycle.mjs
-node --test test/test_workspaces.mjs
-node --test test/test_telemetry.mjs
-node --test test/test_recovery.mjs
-node --test test/test_e2e_antigravity_parity.mjs
-```
-
----
-
-## 👨‍💻 Author & GitHub Activity
-
-<div align="center">
-
-Crafted with ⚡ by **[PRIYAGDEV](https://github.com/PRIYAGDEV)**
-
-<br>
-
-<p align="center">
-  <img src="https://github-stats-extended.vercel.app/api?username=PRIYAGDEV&show_icons=true&theme=tokyonight&hide_border=true" alt="PRIYAGDEV's GitHub Stats" />
-  <img src="https://streak-stats.demolab.com?user=PRIYAGDEV&theme=tokyonight&hide_border=true" alt="PRIYAGDEV's GitHub Streak" />
-</p>
-<p align="center">
-  <img src="https://github-stats-extended.vercel.app/api/top-langs/?username=PRIYAGDEV&layout=compact&theme=tokyonight&hide_border=true" alt="Top Languages" />
-</p>
-
-[![GitHub followers](https://img.shields.io/github/followers/PRIYAGDEV?style=social)](https://github.com/PRIYAGDEV)
-[![GitHub stars](https://img.shields.io/github/stars/PRIYAGDEV?style=social)](https://github.com/PRIYAGDEV)
-
-</div>
 
 ---
 
 ## 📄 License
 
-Open-source under the **[MIT License](LICENSE)**.
-
-Contributions, suggestions, and feature requests are always welcome!
+MIT © [PRIYAGDEV](https://github.com/PRIYAGDEV)
