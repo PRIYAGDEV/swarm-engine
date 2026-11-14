@@ -16,7 +16,7 @@
  */
 import http from "node:http";
 import { getSwarmDir, readState } from "./state.js";
-import { readBoardMessages, postMessage } from "./board.js";
+import { readBoardMessages, postMessage, boardEventBus } from "./board.js";
 function escapeHtml(str) {
     if (!str)
         return "";
@@ -35,7 +35,7 @@ export function getSampleSwarmBoardData() {
         title: "stats and dedupe packages",
         isLive: true,
         workspacePath: "/Users/alex/linkshelf",
-        headSeq: 4,
+        headSeq: 8,
         members: [
             {
                 id: "coordinator",
@@ -132,6 +132,42 @@ export function getSampleSwarmBoardData() {
                 text: "You are this swarm's stall monitor. Load the swarm_monitor skill and follow it. Post only to break a stall.",
                 time: "2:24 PM",
                 timestamp: Date.now() - 90000,
+            },
+            {
+                seq: 5,
+                from: "stats",
+                to: ["@verifier"],
+                channel: "main",
+                text: "internal/stats is ready for verification (ref #1).\n• Files added: internal/stats/stats.go, internal/stats/stats_test.go",
+                time: "2:28 PM",
+                timestamp: Date.now() - 60000,
+            },
+            {
+                seq: 6,
+                from: "dedupe",
+                to: ["@verifier"],
+                channel: "main",
+                text: "internal/dedupe is ready for verification (ref #2).\n• Files added: internal/dedupe/dedupe.go, internal/dedupe/dedupe_test.go",
+                time: "2:29 PM",
+                timestamp: Date.now() - 50000,
+            },
+            {
+                seq: 7,
+                from: "verifier",
+                to: ["@coordinator"],
+                channel: "main",
+                text: "Full repo verification passed cleanly (ref #5, #6).\n\nCommands & Test Output:\n• go test -count=1 -v ./... — all tests in internal/stats and internal/dedupe pass.\n• go vet ./... and gofmt -l . — clean with zero warnings or formatting issues.\n• Diff review confirmed only the 4 expected files were added.",
+                time: "2:30 PM",
+                timestamp: Date.now() - 30000,
+            },
+            {
+                seq: 8,
+                from: "coordinator",
+                to: [],
+                channel: "main",
+                text: "[done] Added internal/stats and internal/dedupe packages with table-driven tests; go test ./... and diff review passed.",
+                time: "2:31 PM",
+                timestamp: Date.now() - 10000,
             },
         ],
     };
@@ -385,11 +421,34 @@ export function generateSwarmBoardHtml(initialData, options) {
       if (!text) return "";
       let escaped = escapeHtml(text);
 
+      // Handle [done] badge
+      escaped = escaped.replace(/^\[done\]/g, '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[rgba(129,201,149,0.2)] text-[var(--success,#81c995)] mr-1.5 align-middle border border-[rgba(129,201,149,0.3)]">[done]</span>');
+
       // Highlight @mentions: @coordinator, @stats, @dedupe, @verifier, @monitor, @all
       escaped = escaped.replace(/@([a-zA-Z0-9_-]+)/g, '<span class="mention-chip">@$1</span>');
 
       // Highlight paths and code blocks: internal/stats/, stats.go, /Users/..., go test ./...
-      escaped = escaped.replace(/(\\b(?:[a-zA-Z0-9_.-]+\\/[a-zA-Z0-9_.-]+|[a-zA-Z0-9_-]+\\.[a-z]{1,4}|go (?:test|vet) [^ ]+)\\b)/g, '<span class="code-chip">$1</span>');
+      escaped = escaped.replace(/(\\b(?:[a-zA-Z0-9_.-]+\\/[a-zA-Z0-9_.-]+|[a-zA-Z0-9_-]+\\.[a-z]{1,4}|go (?:test|vet) [^ \\n]+)\\b)/g, '<span class="code-chip">$1</span>');
+
+      // Handle expandable disclosure for "Commands & Test Output"
+      if (escaped.includes("Commands &amp; Test Output:")) {
+        const parts = escaped.split("Commands &amp; Test Output:");
+        const intro = parts[0];
+        const details = parts[1] || "";
+        return intro + \`
+          <details class="mt-2 text-xs">
+            <summary class="cursor-pointer text-[var(--primary,#8ab4f8)] hover:underline font-medium select-none flex items-center gap-1">
+              <span>Commands &amp; Test Output</span>
+            </summary>
+            <div class="mt-1 pl-3 py-1 border-l-2 border-[var(--border,#2e3135)] text-[var(--muted-foreground,#9ca3af)] space-y-1 font-mono text-[11px]">
+              \${details.trim().split('\\n').map(l => '<div>' + l + '</div>').join('')}
+            </div>
+          </details>
+        \`;
+      }
+
+      // Handle line breaks
+      escaped = escaped.replace(/\\n/g, '<br/>');
 
       return escaped;
     }
@@ -442,10 +501,18 @@ export function generateSwarmBoardHtml(initialData, options) {
         const item = document.createElement("div");
         item.className = "flex items-start gap-3 text-xs leading-relaxed group";
 
-        // Left Avatar matching Antigravity "an" icon
+        // Left Avatar matching Antigravity multi-agent colored "an" badge
         const avatar = document.createElement("div");
-        avatar.className = "w-6 h-6 rounded-full bg-[rgba(255,255,255,0.08)] text-[var(--muted-foreground,#8e9196)] flex items-center justify-center font-medium text-[10px] shrink-0 mt-0.5";
-        avatar.textContent = msg.from === "coordinator" ? "an" : msg.from.slice(0, 2).toLowerCase();
+        const avatarColorMap = {
+          coordinator: "bg-[#f59e0b]/20 text-[#fbbf24] border border-[#f59e0b]/40",
+          stats: "bg-[#a855f7]/20 text-[#c084fc] border border-[#a855f7]/40",
+          dedupe: "bg-[#10b981]/20 text-[#34d399] border border-[#10b981]/40",
+          verifier: "bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/40",
+          monitor: "bg-[#ec4899]/20 text-[#f472b6] border border-[#ec4899]/40",
+        };
+        const colorClass = avatarColorMap[msg.from] || "bg-[rgba(255,255,255,0.08)] text-[var(--muted-foreground,#8e9196)] border border-white/10";
+        avatar.className = \`w-6 h-6 rounded-full \${colorClass} flex items-center justify-center font-medium text-[10px] shrink-0 mt-0.5\`;
+        avatar.textContent = "an";
 
         // Right Content
         const content = document.createElement("div");
@@ -789,39 +856,203 @@ export async function loadSwarmBoardData(cwd) {
     };
 }
 /**
- * Formats structured SwarmBoardData into an ANSI terminal representation.
+ * Formats structured SwarmBoardData into the exact Antigravity Terminal TUI representation.
+ * Reproduces the official layout from https://antigravity.google/docs/swarm/ (Image 2).
  */
-export function formatBoardTerminal(data) {
+export function formatBoardTerminal(data, options) {
+    const useColor = options?.useColor ?? true;
+    const width = options?.width || (process.stdout?.columns ? Math.min(process.stdout.columns, 92) : 88);
+    const follow = options?.follow ?? true;
+    const messages = data.messages || [];
+    const members = data.members || [];
+    const defaultSel = messages.length > 0 ? messages.length - 1 : 0;
+    const selIdx = options?.selectedIndex !== undefined ? Math.max(0, Math.min(options.selectedIndex, messages.length - 1)) : defaultSel;
+    const selectedMsg = messages[selIdx] || { seq: 0, from: "coordinator", time: "now", text: "(no messages)" };
+    const c = useColor
+        ? {
+            reset: "\x1b[0m",
+            bold: "\x1b[1m",
+            dim: "\x1b[2m",
+            cyan: "\x1b[36m",
+            brightCyan: "\x1b[96m",
+            green: "\x1b[32m",
+            brightGreen: "\x1b[92m",
+            yellow: "\x1b[33m",
+            white: "\x1b[37m",
+            brightWhite: "\x1b[97m",
+            gray: "\x1b[90m",
+        }
+        : {
+            reset: "",
+            bold: "",
+            dim: "",
+            cyan: "",
+            brightCyan: "",
+            green: "",
+            brightGreen: "",
+            yellow: "",
+            white: "",
+            brightWhite: "",
+            gray: "",
+        };
+    const hr = c.gray + "─".repeat(width) + c.reset;
     const lines = [];
-    lines.push("================================================================================");
-    lines.push(`SWARM BOARD — ${data.title}  ● LIVE`);
-    lines.push("================================================================================");
-    lines.push(`Tabs: [Board (${data.messages.length})]  [Members (${data.members.length})]  [Graph]`);
-    lines.push("--------------------------------------------------------------------------------");
-    if (data.messages.length === 0) {
-        lines.push("  (no messages on the board)");
+    // 1. Header Line
+    const followText = follow ? c.green + "[follow: on]" + c.reset : c.gray + "[follow: off]" + c.reset;
+    lines.push(`${c.bold}${c.brightCyan}Swarm board "${data.title}"${c.reset} ${c.gray}·${c.reset} ${c.white}${messages.length} posts${c.reset} ${c.gray}·${c.reset} ${followText}`);
+    lines.push(hr);
+    // 2. Roster Section
+    const waitingCount = members.filter((m) => m.status === "waiting").length;
+    const leaderModel = members[0]?.model || "Gemini 4 Carbon (Medium)";
+    lines.push(`${c.bold}${c.white}Roster${c.reset} ${c.gray}·${c.reset} ${c.white}${members.length} members, ${waitingCount} waiting${c.reset} ${c.gray}·${c.reset} ${c.gray}all on ${leaderModel}${c.reset}`);
+    for (const m of members) {
+        let dot = `${c.green}● working${c.reset}`;
+        if (m.status === "waiting") {
+            dot = `${c.gray}○ waiting${c.reset}`;
+        }
+        else if (m.status === "completed" || m.status === "killed") {
+            dot = `${c.gray}◌ done   ${c.reset}`;
+        }
+        const extra = m.id === "coordinator" ? `  ${c.gray}posted just now${c.reset}` : "";
+        lines.push(`  • ${m.name.padEnd(13)} ${dot}${extra}`);
+    }
+    lines.push(hr);
+    // 3. Posts Section
+    lines.push(`${c.bold}${c.white}Posts${c.reset} ${c.gray}·${c.reset} ${c.white}${messages.length} total${c.reset}`);
+    if (messages.length === 0) {
+        lines.push(`  ${c.gray}(no posts on board)${c.reset}`);
     }
     else {
-        for (const msg of data.messages) {
-            const targets = Array.isArray(msg.to) && msg.to.length > 0 ? ` → ${msg.to.join(" ")}` : "";
-            lines.push(`#${msg.seq} · ${msg.time || "now"}  @${msg.from}${targets}`);
-            const indented = (msg.text || "")
-                .split("\n")
-                .map((l) => "  " + l)
-                .join("\n");
-            lines.push(indented);
-            lines.push("");
+        // Show up to 10 latest or window around selected
+        const startIdx = Math.max(0, Math.min(selIdx - 3, Math.max(0, messages.length - 8)));
+        const endIdx = Math.min(messages.length, startIdx + 8);
+        for (let i = startIdx; i < endIdx; i++) {
+            const msg = messages[i];
+            const isSel = i === selIdx;
+            const marker = isSel ? `${c.brightCyan}>${c.reset}` : " ";
+            const seqStr = `#${msg.seq}`.padEnd(3);
+            const timeStr = (msg.time || "now").padEnd(5);
+            const fromStr = (msg.from || "coord").padEnd(11);
+            const targets = Array.isArray(msg.to) && msg.to.length > 0 ? msg.to.join(" ") : "";
+            const targetStr = targets ? targets.padEnd(13) : "".padEnd(13);
+            let textSnippet = (msg.text || "").replace(/\r?\n/g, " ");
+            const maxSnippet = Math.max(20, width - 42);
+            if (textSnippet.length > maxSnippet) {
+                textSnippet = textSnippet.slice(0, maxSnippet - 3) + "...";
+            }
+            if (isSel) {
+                lines.push(`${marker} ${c.brightCyan}${seqStr}${c.reset}  ${c.gray}${timeStr}${c.reset} ${c.bold}${c.white}${fromStr}${c.reset} ${c.cyan}${targetStr}${c.reset} ${c.brightWhite}${textSnippet}${c.reset}`);
+            }
+            else {
+                lines.push(`${marker} ${c.gray}${seqStr}${c.reset}  ${c.gray}${timeStr}${c.reset} ${c.white}${fromStr}${c.reset} ${c.gray}${targetStr}${c.reset} ${c.gray}${textSnippet}${c.reset}`);
+            }
         }
     }
-    lines.push("--------------------------------------------------------------------------------");
-    lines.push("ACTIVE MEMBERS:");
-    for (const m of data.members) {
-        const statusDot = m.status === "working" ? "🟢" : m.status === "waiting" ? "🟡" : "⚪";
-        const files = m.targetFiles && m.targetFiles.length > 0 ? ` [${m.targetFiles.join(", ")}]` : "";
-        lines.push(`  ${statusDot} @${m.name.padEnd(14)} (${m.role}) - ${m.model || "default"}${files}`);
-    }
-    lines.push("================================================================================");
+    lines.push(hr);
+    // 4. Message Detail Section
+    lines.push(`${c.bold}${c.white}Message${c.reset} ${c.gray}·${c.reset} ${c.white}#${selectedMsg.seq} ${selectedMsg.from}${c.reset} ${c.gray}·${c.reset} ${c.gray}${selectedMsg.time || "now"}${c.reset}`);
+    const msgBody = (selectedMsg.text || "").split("\n").map((line) => line).join("\n");
+    lines.push(c.white + msgBody + c.reset);
+    lines.push(hr);
+    // 5. Footer & Shortcuts
+    const curPos = messages.length > 0 ? selIdx + 1 : 0;
+    lines.push(`${c.gray}Post ${curPos}/${messages.length} (seq #${selectedMsg.seq} by ${selectedMsg.from} at ${selectedMsg.time || "now"}, just now)${c.reset}`);
+    lines.push(`${c.brightCyan}tab${c.reset} ${c.gray}switch pane ·${c.reset} ${c.brightCyan}enter${c.reset} ${c.gray}hide message ·${c.reset} ${c.brightCyan}space${c.reset} ${c.gray}expand ·${c.reset} ${c.brightCyan}p${c.reset} ${c.gray}filter ·${c.reset} ${c.brightCyan}f${c.reset} ${c.gray}follow ·${c.reset} ${c.brightCyan}z${c.reset} ${c.gray}zoom ·${c.reset} ${c.brightCyan}esc${c.reset} ${c.gray}back${c.reset}`);
     return lines.join("\n");
+}
+/**
+ * Runs the interactive terminal TUI Swarm Board.
+ */
+export async function runInteractiveTerminalBoard(options) {
+    const cwd = options?.cwd || process.cwd();
+    let follow = options?.initialFollow ?? true;
+    let selectedIndex = -1;
+    let running = true;
+    const cleanup = () => {
+        running = false;
+        if (process.stdin.isTTY) {
+            try {
+                process.stdin.setRawMode(false);
+                process.stdin.pause();
+            }
+            catch { }
+        }
+        process.stdout.write("\x1b[?25h\n"); // show cursor
+    };
+    const render = async () => {
+        if (!running)
+            return;
+        const data = await loadSwarmBoardData(cwd);
+        if (follow || selectedIndex === -1) {
+            selectedIndex = Math.max(0, data.messages.length - 1);
+        }
+        else {
+            selectedIndex = Math.max(0, Math.min(selectedIndex, data.messages.length - 1));
+        }
+        const output = formatBoardTerminal(data, {
+            selectedIndex,
+            follow,
+            useColor: true,
+        });
+        process.stdout.write("\x1b[?25l\x1b[H\x1b[2J" + output + "\n");
+    };
+    await render();
+    if (process.stdin.isTTY) {
+        try {
+            process.stdin.setRawMode(true);
+            process.stdin.resume();
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", async (key) => {
+                if (key === "\u0003" || key === "q" || key === "\u001b") {
+                    cleanup();
+                    process.exit(0);
+                }
+                else if (key === "\u001b[A" || key === "k") {
+                    // Arrow Up
+                    follow = false;
+                    selectedIndex = Math.max(0, selectedIndex - 1);
+                    await render();
+                }
+                else if (key === "\u001b[B" || key === "j") {
+                    // Arrow Down
+                    const data = await loadSwarmBoardData(cwd);
+                    selectedIndex = Math.min(data.messages.length - 1, selectedIndex + 1);
+                    if (selectedIndex === data.messages.length - 1)
+                        follow = true;
+                    await render();
+                }
+                else if (key === "f") {
+                    // Toggle follow
+                    follow = !follow;
+                    await render();
+                }
+                else if (key === "r") {
+                    await render();
+                }
+            });
+        }
+        catch { }
+    }
+    // Periodic poll & event listener
+    const interval = setInterval(async () => {
+        if (!running) {
+            clearInterval(interval);
+            return;
+        }
+        await render();
+    }, 2000);
+    boardEventBus.onPost(async () => {
+        if (running)
+            await render();
+    });
+    process.on("SIGINT", () => {
+        cleanup();
+        process.exit(0);
+    });
+    process.on("SIGTERM", () => {
+        cleanup();
+        process.exit(0);
+    });
 }
 /**
  * Starts a live HTTP web server serving the Swarm Board.

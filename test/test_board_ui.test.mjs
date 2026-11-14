@@ -22,16 +22,20 @@ test("Swarm Board UI — Google Antigravity & Carbon Parity", async (t) => {
     const data = getSampleSwarmBoardData();
     assert.equal(data.title, "stats and dedupe packages");
     assert.equal(data.isLive, true);
-    assert.equal(data.messages.length, 4);
+    assert.equal(data.messages.length, 8);
     assert.equal(data.members.length, 5);
 
-    // Verify messages match screenshot
+    // Verify messages match screenshot (posts #1 to #8)
     assert.equal(data.messages[0].from, "coordinator");
     assert.deepEqual(data.messages[0].to, ["@dedupe", "@stats", "@verifier"]);
     assert.ok(data.messages[0].text.includes("internal/stats/"));
     assert.ok(data.messages[1].text.includes("internal/dedupe/"));
     assert.ok(data.messages[2].text.includes("read-only verifier"));
     assert.ok(data.messages[3].text.includes("stall monitor"));
+    assert.ok(data.messages[4].text.includes("internal/stats is ready for verification"));
+    assert.ok(data.messages[5].text.includes("internal/dedupe is ready for verification"));
+    assert.ok(data.messages[6].text.includes("Full repo verification passed cleanly"));
+    assert.ok(data.messages[7].text.includes("[done] Added internal/stats"));
 
     // Verify members match screenshot
     const memberNames = data.members.map((m) => m.name);
@@ -111,18 +115,21 @@ test("Swarm Board UI — Google Antigravity & Carbon Parity", async (t) => {
     }
   });
 
-  await t.test("T-BRD-04: formatBoardTerminal outputs clean aligned terminal view", () => {
+  await t.test("T-BRD-04: formatBoardTerminal outputs clean aligned terminal view matching Image 2", () => {
     const data = getSampleSwarmBoardData();
-    const term = formatBoardTerminal(data);
+    const term = formatBoardTerminal(data, { useColor: false });
 
-    assert.ok(term.includes("SWARM BOARD — stats and dedupe packages  ● LIVE"));
-    assert.ok(term.includes("Tabs: [Board (4)]  [Members (5)]  [Graph]"));
-    assert.ok(term.includes("@coordinator → @dedupe @stats @verifier"));
-    assert.ok(term.includes("ACTIVE MEMBERS:"));
-    assert.ok(term.includes("@stats"));
-    assert.ok(term.includes("@dedupe"));
-    assert.ok(term.includes("@verifier"));
-    assert.ok(term.includes("@monitor"));
+    assert.ok(term.includes('Swarm board "stats and dedupe packages"'));
+    assert.ok(term.includes("posts · [follow: on]"));
+    assert.ok(term.includes("Roster · 5 members"));
+    assert.ok(term.includes("Posts · 8 total"));
+    assert.ok(term.includes("Message ·"));
+    assert.ok(term.includes("tab switch pane · enter hide message · space expand · p filter · f follow"));
+    assert.ok(term.includes("coordinator"));
+    assert.ok(term.includes("stats"));
+    assert.ok(term.includes("dedupe"));
+    assert.ok(term.includes("verifier"));
+    assert.ok(term.includes("monitor"));
   });
 
   await t.test("T-BRD-05: CLI subcommand 'swarm-engine board --html' exports board HTML", async () => {

@@ -55,9 +55,22 @@ export declare function generateSwarmBoardHtml(initialData: SwarmBoardData, opti
  */
 export declare function loadSwarmBoardData(cwd?: string): Promise<SwarmBoardData>;
 /**
- * Formats structured SwarmBoardData into an ANSI terminal representation.
+ * Formats structured SwarmBoardData into the exact Antigravity Terminal TUI representation.
+ * Reproduces the official layout from https://antigravity.google/docs/swarm/ (Image 2).
  */
-export declare function formatBoardTerminal(data: SwarmBoardData): string;
+export declare function formatBoardTerminal(data: SwarmBoardData, options?: {
+    selectedIndex?: number;
+    follow?: boolean;
+    width?: number;
+    useColor?: boolean;
+}): string;
+/**
+ * Runs the interactive terminal TUI Swarm Board.
+ */
+export declare function runInteractiveTerminalBoard(options?: {
+    cwd?: string;
+    initialFollow?: boolean;
+}): Promise<void>;
 /**
  * Starts a live HTTP web server serving the Swarm Board.
  */

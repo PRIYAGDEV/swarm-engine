@@ -19,7 +19,7 @@ import { startMcpServer } from "./mcp.js";
 import { renderDashboard } from "./tui.js";
 import { runAgentWorker } from "./runner.js";
 import { detectActiveModels } from "./detector.js";
-import { loadSwarmBoardData, generateSwarmBoardHtml, formatBoardTerminal, startBoardServer, } from "./board-ui.js";
+import { loadSwarmBoardData, generateSwarmBoardHtml, formatBoardTerminal, runInteractiveTerminalBoard, startBoardServer, } from "./board-ui.js";
 /**
  * Helper to retrieve the string value of a command-line flag.
  * Supports both '--flag value' and '--flag=value'.
@@ -583,11 +583,12 @@ async function handleBoard(args, cwd = process.cwd()) {
     const isHtml = hasFlag(args, "--html");
     const htmlPathArg = getFlagValue(args, "--html") || getFlagValue(args, "--out") || getFlagValue(args, "-o");
     const shouldOpen = hasFlag(args, "--open");
+    const isServe = hasFlag(args, "--serve", "-s");
     const portStr = getFlagValue(args, "--port") || getFlagValue(args, "-p");
     const port = portStr ? parseInt(portStr, 10) : 3456;
     const data = await loadSwarmBoardData(cwd);
     if (isPlain) {
-        console.log(formatBoardTerminal(data));
+        console.log(formatBoardTerminal(data, { useColor: true }));
         return;
     }
     if (isHtml || htmlPathArg) {
@@ -606,15 +607,25 @@ async function handleBoard(args, cwd = process.cwd()) {
         }
         return;
     }
-    // Live HTTP Server mode
-    const { url } = await startBoardServer({ port, cwd, open: shouldOpen });
-    console.log(`\n================================================================================`);
-    console.log(`  ● SWARM ENGINE BOARD — LIVE SERVER`);
-    console.log(`  Mission: ${data.title}`);
-    console.log(`  URL:     ${url}`);
-    console.log(`  Tabs:    Board (${data.messages.length}) | Members (${data.members.length}) | Graph`);
-    console.log(`================================================================================\n`);
-    console.log(`Press Ctrl+C to stop the board server.`);
+    if (isServe) {
+        // Live HTTP Server mode
+        const { url } = await startBoardServer({ port, cwd, open: shouldOpen });
+        console.log(`\n================================================================================`);
+        console.log(`  ● SWARM ENGINE BOARD — LIVE SERVER`);
+        console.log(`  Mission: ${data.title}`);
+        console.log(`  URL:     ${url}`);
+        console.log(`  Tabs:    Board (${data.messages.length}) | Members (${data.members.length}) | Graph`);
+        console.log(`================================================================================\n`);
+        console.log(`Press Ctrl+C to stop the board server.`);
+        return;
+    }
+    // Interactive Terminal TUI mode (matching Antigravity /swarm board CLI - Image 2)
+    if (process.stdout.isTTY) {
+        await runInteractiveTerminalBoard({ cwd, initialFollow: true });
+    }
+    else {
+        console.log(formatBoardTerminal(data, { useColor: false }));
+    }
 }
 /**
  * Prints the CLI help message.

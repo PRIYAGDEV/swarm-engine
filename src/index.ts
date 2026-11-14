@@ -32,6 +32,7 @@ import {
   loadSwarmBoardData,
   generateSwarmBoardHtml,
   formatBoardTerminal,
+  runInteractiveTerminalBoard,
   startBoardServer,
 } from "./board-ui.js";
 
@@ -661,13 +662,14 @@ async function handleBoard(args: string[], cwd: string = process.cwd()): Promise
   const isHtml = hasFlag(args, "--html");
   const htmlPathArg = getFlagValue(args, "--html") || getFlagValue(args, "--out") || getFlagValue(args, "-o");
   const shouldOpen = hasFlag(args, "--open");
+  const isServe = hasFlag(args, "--serve", "-s");
   const portStr = getFlagValue(args, "--port") || getFlagValue(args, "-p");
   const port = portStr ? parseInt(portStr, 10) : 3456;
 
   const data = await loadSwarmBoardData(cwd);
 
   if (isPlain) {
-    console.log(formatBoardTerminal(data));
+    console.log(formatBoardTerminal(data, { useColor: true }));
     return;
   }
 
@@ -688,15 +690,25 @@ async function handleBoard(args: string[], cwd: string = process.cwd()): Promise
     return;
   }
 
-  // Live HTTP Server mode
-  const { url } = await startBoardServer({ port, cwd, open: shouldOpen });
-  console.log(`\n================================================================================`);
-  console.log(`  ● SWARM ENGINE BOARD — LIVE SERVER`);
-  console.log(`  Mission: ${data.title}`);
-  console.log(`  URL:     ${url}`);
-  console.log(`  Tabs:    Board (${data.messages.length}) | Members (${data.members.length}) | Graph`);
-  console.log(`================================================================================\n`);
-  console.log(`Press Ctrl+C to stop the board server.`);
+  if (isServe) {
+    // Live HTTP Server mode
+    const { url } = await startBoardServer({ port, cwd, open: shouldOpen });
+    console.log(`\n================================================================================`);
+    console.log(`  ● SWARM ENGINE BOARD — LIVE SERVER`);
+    console.log(`  Mission: ${data.title}`);
+    console.log(`  URL:     ${url}`);
+    console.log(`  Tabs:    Board (${data.messages.length}) | Members (${data.members.length}) | Graph`);
+    console.log(`================================================================================\n`);
+    console.log(`Press Ctrl+C to stop the board server.`);
+    return;
+  }
+
+  // Interactive Terminal TUI mode (matching Antigravity /swarm board CLI - Image 2)
+  if (process.stdout.isTTY) {
+    await runInteractiveTerminalBoard({ cwd, initialFollow: true });
+  } else {
+    console.log(formatBoardTerminal(data, { useColor: false }));
+  }
 }
 
 /**
