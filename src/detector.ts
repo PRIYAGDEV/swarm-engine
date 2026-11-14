@@ -197,12 +197,356 @@ function detectFromEditorSettings(): { leader?: string; worker?: string; source?
           source: `${path.basename(path.dirname(path.dirname(settingsPath)))} settings`,
         };
       }
-    } catch {
-      // Ignore read errors on settings
-    }
+    } catch {}
   }
 
   return undefined;
+}
+
+/**
+ * Detects active model and environment when running inside Google Antigravity.
+ */
+export function detectFromAntigravity(): { leader?: string; worker?: string; source?: string } | undefined {
+  const appData =
+    process.env.ANTIGRAVITY_APP_DATA_DIR ||
+    (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, ".gemini", "antigravity") : undefined) ||
+    (process.env.HOME ? path.join(process.env.HOME, ".gemini", "antigravity") : undefined);
+
+  const isAntigravityAgent = !!(
+    process.env.ANTIGRAVITY_AGENT ||
+    process.env.ANTIGRAVITY_APP_DATA_DIR ||
+    process.env.ANTIGRAVITY_CONVERSATION_ID
+  );
+
+  // 1. Process environment variables
+  const envModel = process.env.ANTIGRAVITY_MODEL || process.env.GEMINI_MODEL;
+  if (envModel && envModel.trim()) {
+    const clean = envModel.trim();
+    return {
+      leader: clean,
+      worker: clean,
+      source: "Antigravity environment variable",
+    };
+  }
+
+  // 2. Transcript of active conversation if available
+  const convoId = process.env.ANTIGRAVITY_CONVERSATION_ID;
+  if (appData && convoId) {
+    const transcriptPath = path.join(appData, "brain", convoId, ".system_generated", "logs", "transcript.jsonl");
+    if (fs.existsSync(transcriptPath)) {
+      try {
+        const raw = fs.readFileSync(transcriptPath, "utf8");
+        const matches = [...raw.matchAll(/Model Selection`?\s+from\s+[^\s]+\s+to\s+([^\.\r\n<]+)/gi)];
+        if (matches.length > 0) {
+          const lastMatch = matches[matches.length - 1][1].trim();
+          let normalized = lastMatch.toLowerCase().replace(/[\(\)]/g, "").replace(/\s+/g, "-");
+          if (normalized.includes("carbon")) {
+            normalized = "gemini-4-carbon";
+          } else if (normalized.includes("flash-lite")) {
+            normalized = "gemini-3.8-flash-lite";
+          } else if (normalized.includes("flash")) {
+            normalized = "gemini-3.8-flash";
+          } else if (normalized.includes("pro")) {
+            normalized = "gemini-3.8-pro";
+          }
+          if (normalized) {
+            return {
+              leader: normalized,
+              worker: normalized,
+              source: `Antigravity session (${convoId.slice(0, 8)})`,
+            };
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // 3. Antigravity state file (antigravity_state.pbtxt)
+  if (appData) {
+    const pbtxtPath = path.join(appData, "antigravity_state.pbtxt");
+    if (fs.existsSync(pbtxtPath)) {
+      try {
+        const raw = fs.readFileSync(pbtxtPath, "utf8");
+        const match = raw.match(/last_selected_agent_model:\s*([A-Za-z0-9_-]+)/);
+        if (match && match[1]) {
+          const placeholder = match[1].trim();
+          const mapped = placeholder === "MODEL_PLACEHOLDER_M318" ? "gemini-3.8-flash" : placeholder;
+          return {
+            leader: mapped,
+            worker: mapped,
+            source: "Antigravity state",
+          };
+        }
+      } catch {}
+    }
+  }
+
+  // 4. If running inside Antigravity agent process, default to gemini-3.8-flash
+  if (isAntigravityAgent) {
+    return {
+      leader: "gemini-3.8-flash",
+      worker: "gemini-3.8-flash",
+      source: "Antigravity default",
+    };
+  }
+
+  return undefined;
+}
+
+/**
+ * Returns the Teamwork-style model tier based on agent role, name, and task brief.
+ * Roles:
+ * - Stall monitor, narrator, telemetry, heartbeat -> flash_lite
+ * - Lead, coordinator, architect, planner, security auditor, challenger -> pro
+ * - General auditor, reviewer -> pro
+ * - Verifier, syntax checker, test runner -> flash
+ * - General coders, implementers, authors, builders -> flash
+ */
+export function getModelTierForRole(
+  role?: string,
+  name?: string,
+  brief?: string
+): "pro" | "flash" | "flash_lite" {
+  const combined = `${role || ""} ${name || ""} ${brief || ""}`.toLowerCase();
+
+  // Tier 4: Lightweight monitor / narrator / heartbeat
+  if (/(monitor|narrator|watchdog|heartbeat|pinger|telemetry|stall)/i.test(combined)) {
+    return "flash_lite";
+  }
+
+  // Tier 1: Heavy reasoning / Orchestration / Architecture / Planner / Security
+  if (
+    /(lead|coordinator|architect|orchestrat|planner|director|interviewer|manager|chief|security|deepinvestigator)/i.test(
+      combined
+    )
+  ) {
+    return "pro";
+  }
+
+  // Tier 3: Critical Audit / Reviewer / Challenger
+  if (/(auditor|reviewer|challenger)/i.test(combined)) {
+    return "pro";
+  }
+
+  // Tier 2: Verifiers / Checkers / Testers
+  if (/(verifier|checker|tester|qa)/i.test(combined)) {
+    return "flash";
+  }
+
+  // Tier 2: Coders / Authors / Workers / Implementers / DeepCoder
+  if (
+    /(worker|coder|deepcoder|developer|author|builder|engineer|impl|frontend|backend|parser|writer)/i.test(
+      combined
+    )
+  ) {
+    return "flash";
+  }
+
+  return "flash";
+}
+
+/**
+ * Detects the active provider family from an active or leader model identifier.
+ */
+export function detectProviderFamily(
+  model?: string
+): "gemini" | "anthropic" | "openai" | "ollama" | "generic" {
+  if (!model) return "gemini";
+  const m = model.toLowerCase();
+  if (m.includes("gemini") || m.includes("carbon") || m.includes("gemma")) return "gemini";
+  if (m.includes("claude") || m.includes("anthropic")) return "anthropic";
+  if (m.includes("gpt") || m.includes("o1") || m.includes("o3") || m.includes("openai")) return "openai";
+  if (m.includes("ollama") || m.includes("llama") || m.includes("qwen")) return "ollama";
+  return "generic";
+}
+
+/**
+ * Maps a tier (pro, flash, flash_lite) to a provider-specific canonical model name.
+ */
+export function mapTierToProviderModel(
+  tier: "pro" | "flash" | "flash_lite",
+  family: "gemini" | "anthropic" | "openai" | "ollama" | "generic",
+  activeLeaderModel?: string
+): string {
+  // If leader model is an explicit custom model (e.g. "MiniMax-M2.7", "custom-model"), preserve it for standard tiers
+  if (family === "generic" && activeLeaderModel && !["default", "inherit"].includes(activeLeaderModel)) {
+    return activeLeaderModel;
+  }
+
+  switch (family) {
+    case "gemini":
+      if (tier === "pro") {
+        if (activeLeaderModel && activeLeaderModel.toLowerCase().includes("carbon")) {
+          return "gemini-4-carbon";
+        }
+        return "gemini-3.8-pro";
+      }
+      if (tier === "flash_lite") return "gemini-3.8-flash-lite";
+      return "gemini-3.8-flash";
+
+    case "anthropic":
+      if (tier === "pro") return "claude-3-7-sonnet";
+      if (tier === "flash_lite") return "claude-3-5-haiku";
+      return "claude-3-5-sonnet";
+
+    case "openai":
+      if (tier === "pro") return "gpt-4o";
+      if (tier === "flash_lite") return "gpt-4o-mini";
+      return "gpt-4o-mini";
+
+    case "ollama":
+      return activeLeaderModel || "qwen-2.5-coder";
+
+    case "generic":
+    default:
+      if (activeLeaderModel && !["default", "inherit"].includes(activeLeaderModel)) {
+        return activeLeaderModel;
+      }
+      return tier;
+  }
+}
+
+export interface ResolveModelOptions {
+  role?: string;
+  requestedModel?: string;
+  leaderModel?: string;
+  sourceModel?: string;
+  fork?: string;
+  parentId?: string;
+  brief?: string;
+  name?: string;
+  cwd?: string;
+}
+
+/**
+ * Automatically resolves the optimal model for an agent node following
+ * Antigravity's Teamwork skill and native swarm model semantics:
+ *
+ * 1. User/Caller explicit override: If `requestedModel` is specified and not empty/"default"/"auto":
+ *    - "inherit": Clones the source/parent model or leader model.
+ *    - "pro" / "flash" / "flash_lite": Resolves to the active provider's tier model.
+ *    - Exact model string (e.g. "claude-3-5-sonnet", "gemini-2.5-flash"): Returns verbatim.
+ * 2. Fork inheritance: If forked from another agent, inherits the source agent's model.
+ * 3. Helper inheritance: If spawned as a helper (parentId set), inherits parent's model.
+ * 4. Teamwork Role Auto-Assignment:
+ *    - Monitor/Narrator -> flash_lite
+ *    - Architect/Lead/Planner -> pro
+ *    - Verifier/Auditor -> pro or flash
+ *    - Workers/Coders -> flash
+ */
+export function resolveModelForRole(options: ResolveModelOptions): string {
+  const req = (options.requestedModel || "").trim();
+
+  // 1. Explicit model handling
+  if (req && req !== "default" && req !== "auto") {
+    if (req.toLowerCase() === "inherit") {
+      if (options.sourceModel) return options.sourceModel;
+      if (options.leaderModel && options.leaderModel !== "default") return options.leaderModel;
+      const detected = detectActiveModelsSync(options.cwd);
+      return detected.leaderModel || "gemini-3.8-flash";
+    }
+
+    if (["pro", "flash", "flash_lite"].includes(req.toLowerCase())) {
+      const detected = detectActiveModelsSync(options.cwd);
+      const active = options.leaderModel || detected.leaderModel;
+      const family = detectProviderFamily(active);
+      return mapTierToProviderModel(req.toLowerCase() as any, family, active);
+    }
+
+    // Specific concrete model passed by user or test (e.g. "claude-3-5-sonnet")
+    return req;
+  }
+
+  // 2. Fork inheritance (when fork is not coordinator)
+  if (options.fork && options.fork.trim() !== "coordinator" && options.sourceModel) {
+    return options.sourceModel;
+  }
+
+  // 3. Helper inheritance
+  if (options.parentId && options.sourceModel) {
+    return options.sourceModel;
+  }
+
+  // 4. Coordinator fork
+  if (options.fork && options.fork.trim() === "coordinator") {
+    if (options.leaderModel && options.leaderModel !== "default") return options.leaderModel;
+    const detected = detectActiveModelsSync(options.cwd);
+    return detected.leaderModel || "gemini-3.8-flash";
+  }
+
+  // 5. Dynamic Teamwork Role Resolution
+  const detected = detectActiveModelsSync(options.cwd);
+  const activeLeader = options.leaderModel || detected.leaderModel;
+  const family = detectProviderFamily(activeLeader);
+
+  const tier = getModelTierForRole(options.role, options.name, options.brief);
+
+  // If leader is a specific custom model from Kilo / local config and role is standard worker/helper:
+  if (family === "generic" && activeLeader && !["default", "inherit"].includes(activeLeader)) {
+    return activeLeader;
+  }
+
+  return mapTierToProviderModel(tier, family, activeLeader);
+}
+
+/**
+ * Automatically returns the next available fallback model in the provider's
+ * hierarchy when a worker encounters quota exhaustion (HTTP 429 RESOURCE_EXHAUSTED).
+ */
+export function getQuotaFallbackModel(currentModel: string): string {
+  const m = (currentModel || "").toLowerCase().trim();
+
+  // Gemini & Carbon failover hierarchy
+  if (m.includes("carbon")) return "gemini-3.8-pro";
+  if (m.includes("gemini") && m.includes("3.8") && m.includes("pro")) return "gemini-3.8-flash";
+  if (m.includes("gemini") && m.includes("pro")) return "gemini-2.5-flash";
+  if (m.includes("gemini") && m.includes("flash-lite")) return "gemini-3.8-flash";
+  if (m.includes("gemini") && m.includes("flash")) return "gemini-3.8-flash-lite";
+
+  // Claude failover hierarchy
+  if (m.includes("claude-3-7") || m.includes("claude-3.7")) return "claude-3-5-sonnet";
+  if (m.includes("claude-3-5-sonnet") || m.includes("claude-3.5-sonnet")) return "claude-3-5-haiku";
+  if (m.includes("claude-3-opus") || m.includes("claude-opus")) return "claude-3-7-sonnet";
+
+  // OpenAI failover hierarchy
+  if (m === "o1" || m === "o3-mini") return "gpt-4o";
+  if (m.includes("gpt-4o") && !m.includes("mini")) return "gpt-4o-mini";
+
+  // Tier keywords
+  if (m === "pro") return "flash";
+  if (m === "flash") return "flash_lite";
+
+  // Safe universal fallback
+  return "gemini-3.8-flash";
+}
+
+/**
+ * Returns available model options, including native Teamwork tiers
+ * and modern Gemini 4 Carbon, Gemini 3.8, Claude, and OpenAI models.
+ */
+export function getAvailableModels(activeModel?: string): string[] {
+  const tiers = ["inherit", "pro", "flash", "flash_lite"];
+  const defaults = [
+    "gemini-4-carbon",
+    "gemini-3.8-pro",
+    "gemini-3.8-flash",
+    "gemini-3.8-flash-lite",
+    "claude-3-7-sonnet",
+    "claude-3-5-sonnet",
+    "claude-3-5-haiku",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "o3-mini",
+    "deepseek-coder-v2",
+    "qwen-2.5-coder",
+  ];
+  const list: string[] = [];
+  if (activeModel && activeModel !== "default" && !defaults.includes(activeModel) && !tiers.includes(activeModel)) {
+    list.push(activeModel);
+  }
+  list.push(...tiers);
+  list.push(...defaults);
+  return Array.from(new Set(list));
 }
 
 /**
@@ -303,7 +647,8 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     process.env.LEADER_MODEL ||
     process.env.ANTHROPIC_MODEL ||
     process.env.OPENAI_MODEL ||
-    process.env.GEMINI_MODEL;
+    process.env.GEMINI_MODEL ||
+    process.env.ANTIGRAVITY_MODEL;
 
   const envWorker =
     process.env.SWARM_MODEL ||
@@ -340,7 +685,17 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 4. Global Kilo CLI config (~/.config/kilo/kilo.jsonc)
+  // 4. Antigravity environment (active session, conversation transcript, state)
+  const fromAntigravity = detectFromAntigravity();
+  if (fromAntigravity && (fromAntigravity.leader || fromAntigravity.worker)) {
+    return {
+      leaderModel: fromAntigravity.leader || fromAntigravity.worker,
+      workerModel: fromAntigravity.worker || fromAntigravity.leader,
+      source: fromAntigravity.source,
+    };
+  }
+
+  // 5. Global Kilo CLI config (~/.config/kilo/kilo.jsonc)
   const fromGlobalKilo = detectFromGlobalKilo();
   if (fromGlobalKilo && (fromGlobalKilo.leader || fromGlobalKilo.worker)) {
     return {
@@ -350,7 +705,7 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 5. Claude Code configurations
+  // 6. Claude Code configurations
   const fromClaude = detectFromClaudeCode(cwd);
   if (fromClaude && (fromClaude.leader || fromClaude.worker)) {
     return {
@@ -360,7 +715,7 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 6. Editor settings (VS Code / Cursor / Sleepy Code)
+  // 7. Editor settings (VS Code / Cursor / Sleepy Code)
   const fromEditor = detectFromEditorSettings();
   if (fromEditor && (fromEditor.leader || fromEditor.worker)) {
     return {
@@ -370,7 +725,11 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  return {};
+  return {
+    leaderModel: "gemini-3.8-flash",
+    workerModel: "gemini-3.8-flash",
+    source: "default",
+  };
 }
 
 /**

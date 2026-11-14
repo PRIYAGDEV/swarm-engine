@@ -39,7 +39,13 @@ import {
 } from "./spawner.js";
 import { runAgentWorker } from "./runner.js";
 import { renderDashboard } from "./tui.js";
-import { detectActiveModels, detectActiveModelsSync } from "./detector.js";
+import {
+  detectActiveModels,
+  detectActiveModelsSync,
+  resolveModelForRole,
+  getAvailableModels,
+  getQuotaFallbackModel,
+} from "./detector.js";
 
 /**
  * Cycle detection helper using 3-color DFS traversal.
@@ -156,7 +162,6 @@ export function createMcpServer(): McpServer {
       try {
         const detected = await detectActiveModels();
         const effectiveLeader = leaderModel || detected.leaderModel || undefined;
-        const defaultWorkerModel = detected.workerModel || effectiveLeader || undefined;
 
         const agentSpecs = (agents || []).map((a) => {
           let wsMode: "inherit" | "share" | "branch" | undefined = undefined;
@@ -165,10 +170,17 @@ export function createMcpServer(): McpServer {
               ? (a.workspace as any)
               : "share";
           }
+          const resolvedModel = resolveModelForRole({
+            role: a.role,
+            requestedModel: a.model,
+            leaderModel: effectiveLeader,
+            brief: a.taskSpec,
+            name: a.id,
+          });
           return {
             id: a.id || `agent-${crypto.randomUUID().slice(0, 8)}`,
             role: a.role,
-            model: a.model || defaultWorkerModel || effectiveLeader,
+            model: resolvedModel,
             systemPrompt: a.systemPrompt,
             taskSpec: a.taskSpec,
             dependsOn: a.dependsOn || [],
@@ -342,10 +354,18 @@ export function createMcpServer(): McpServer {
           };
         }
 
+        const effectiveModel = resolveModelForRole({
+          role,
+          requestedModel: model,
+          leaderModel: state.leaderModel,
+          brief: taskSpec,
+          name: agentId,
+        });
+
         const newAgent: AgentNode = {
           id: agentId,
           role,
-          model: model || detectActiveModelsSync().workerModel || undefined,
+          model: effectiveModel,
           systemPrompt,
           taskSpec,
           dependsOn: dependsOn || [],
@@ -1301,17 +1321,8 @@ export function createMcpServer(): McpServer {
         // 3. ACTION: models
         if (action === "models") {
           const detected = await detectActiveModels(path.dirname(swarmDir));
-          const active = state.leaderModel || detected.leaderModel || "default";
-          const defaultModels = [
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "claude-3-7-sonnet",
-            "claude-3-5-sonnet",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "deepseek-coder-v2",
-          ];
-          const models = Array.from(new Set([active, ...defaultModels]));
+          const active = state.leaderModel || detected.leaderModel || "gemini-3.8-flash";
+          const models = getAvailableModels(active);
           return {
             content: [
               {
@@ -1322,6 +1333,12 @@ export function createMcpServer(): McpServer {
                   models,
                   activeModel: active,
                   leaderModel: active,
+                  tiers: {
+                    architect: resolveModelForRole({ role: "architect", leaderModel: active }),
+                    worker: resolveModelForRole({ role: "worker", leaderModel: active }),
+                    verifier: resolveModelForRole({ role: "verifier", leaderModel: active }),
+                    monitor: resolveModelForRole({ role: "monitor", leaderModel: active }),
+                  },
                 }),
               },
             ],
@@ -1343,7 +1360,22 @@ export function createMcpServer(): McpServer {
             };
           }
           const targetName = name.trim();
-          const targetModel = model.trim();
+          let targetModel = model.trim();
+
+          const targetAgent = state.agents?.[targetName];
+
+          if (["fallback", "auto", "quota_failover", "next"].includes(targetModel.toLowerCase())) {
+            const current = (targetName === "coordinator" ? state.leaderModel : targetAgent?.model) || state.leaderModel || "gemini-3.8-flash";
+            targetModel = getQuotaFallbackModel(current);
+          } else if (["pro", "flash", "flash_lite"].includes(targetModel.toLowerCase())) {
+            targetModel = resolveModelForRole({
+              role: targetName === "coordinator" ? "coordinator" : targetAgent?.role,
+              requestedModel: targetModel,
+              leaderModel: state.leaderModel,
+              name: targetName,
+              cwd: path.dirname(swarmDir),
+            });
+          }
 
           if (targetName === "coordinator") {
             await updateState((s) => {
@@ -1364,7 +1396,6 @@ export function createMcpServer(): McpServer {
             };
           }
 
-          const targetAgent = state.agents?.[targetName];
           if (!targetAgent) {
             return {
               isError: true,
@@ -1527,14 +1558,6 @@ export function createMcpServer(): McpServer {
             (fork && fork.trim() === "coordinator" ? state.mission : undefined) ||
             `Task assignment for ${rawName}`;
 
-          const agentModel =
-            model ||
-            (fork && fork.trim() !== "coordinator"
-              ? state.agents?.[fork.trim()]?.model
-              : undefined) ||
-            state.leaderModel ||
-            "default";
-
           const assignedChannels =
             channels ||
             (fork && fork.trim() !== "coordinator"
@@ -1547,6 +1570,23 @@ export function createMcpServer(): McpServer {
               ? state.agents?.[fork.trim()]?.role
               : undefined) ||
             (parentId ? "helper" : "worker");
+
+          const agentModel = resolveModelForRole({
+            role: effectiveRole,
+            requestedModel: model,
+            leaderModel: state.leaderModel,
+            sourceModel:
+              fork && fork.trim() !== "coordinator"
+                ? state.agents?.[fork.trim()]?.model
+                : parentId && parentId.trim()
+                ? state.agents?.[parentId.trim()]?.model
+                : undefined,
+            fork,
+            parentId,
+            brief: taskBrief,
+            name: rawName,
+            cwd: path.dirname(swarmDir),
+          });
 
           const newAgent: AgentNode = {
             id: rawName,

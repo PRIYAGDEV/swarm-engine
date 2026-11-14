@@ -128,9 +128,22 @@ The core loop of the coordinator:
 
 - **Verifiers**: Add workers whose only job is to check others' work (`read_file`, run tests) and post what is wrong by name to whoever wrote it. Aim for one verifier for every two to four workers.
 - **Give Authors Their Own Workspace (`workspace: "share"`)**: Workers share your working copy by default (`inherit`). Add authors who edit or build simultaneously with `workspace: "share"`: each gets a dedicated Git worktree on branch `swarm/<name>` with automatic dirty-root stashing and safe clean merging. Leave readers and verifiers on `inherit`.
-- **Model Choice & Hot-Swapping**: Run workers on your own model by leaving `model` off `add`. If a worker runs out of quota or the user requests another model, hot-swap it seamlessly:
+- **Teamwork-Parity Model Resolution & Dynamic Role Tiers**:
+  Swarm Engine automatically detects active models from the conversation context, Antigravity (`gemini-4-carbon`, `gemini-3.8-pro`, `gemini-3.8-flash`, `gemini-3.8-flash-lite`), Claude Code (`claude-3-7-sonnet`, `claude-3-5-sonnet`), and local configs. Leaving `model` off `add` (or passing `"inherit"`) automatically assigns models based on role tiers matching Antigravity's **Teamwork** skill:
+  - **Lead / Orchestrator / Architect / Planner**: `pro` tier (`gemini-3.8-pro`, `gemini-4-carbon`, `claude-3-7-sonnet`).
+  - **Workers / Coders / DeepCoder / Authors**: `flash` tier (`gemini-3.8-flash`, `claude-3-5-sonnet`).
+  - **Verifiers / Auditors / Checkers / DeepInvestigator**: `pro` or `flash` tier (critical review & testing).
+  - **Stall Monitor / Narrator**: `flash_lite` tier (`gemini-3.8-flash-lite`, `claude-3-5-haiku`) — saves quota during monitoring.
+  - **Helpers / Sub-agents (`parentId`) & Forks (`fork`)**: Inherit the parent/source agent's model (`inherit`).
+
+- **Runtime Model Hot-Swapping & Automatic Quota Failover**:
+  If an agent runs out of quota (`HTTP 429 RESOURCE_EXHAUSTED`) or the user requests another model, hot-swap it immediately without losing context, memory, or file locks:
   ```json
-  { "action": "model", "name": "worker-1", "model": "gemini-2.5-pro" }
+  // Automatic failover to next viable tier (e.g., carbon -> pro -> flash -> flash-lite)
+  { "action": "model", "name": "worker-1", "model": "fallback" }
+
+  // Or explicitly switch to another model or tier
+  { "action": "model", "name": "worker-1", "model": "gemini-3.8-flash" }
   ```
 - **Fork When Context is Already Warm**: Pass `fork: "<member>"` (or `"coordinator"`) to `add` when a new worker needs the reasoning and files already loaded in another member's conversation.
 - **Split into Channels**: For swarms with multiple independent work areas, create topic channels (`swarm{ action: "channel", op: "create", channel: "ui" }`). Workers subscribed to `#ui` wake only on UI chatter, keeping `main` quiet.

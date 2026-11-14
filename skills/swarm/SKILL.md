@@ -216,14 +216,15 @@ asks.
   work, hand that out too: add a worker whose job is dividing the work and
   briefing the others.
 - **Model choice.** Run every worker on your own model — the one the user
-  chose for this conversation — by leaving `model` off `add`. Do not pick other
-  models on your own initiative, whether for diversity, cost or quota. The
-  exception is the user: if they ask for a different model, for one worker or
-  for all of them, use exactly the model they asked for.
-  `swarm{action:"models"}` lists what you can run, `add{model}` pins it, and
-  `swarm{action:"status"}` shows what each worker is running. Do not switch a
-  member's model, or your own, unless the user asks or the current model is out
-  of quota or capacity; say why when you do.
+  chose for this conversation — by leaving `model` off `add`. Swarm Engine
+  automatically resolves models matching Teamwork skill tiers (architects -> pro,
+  coders -> flash, verifiers -> pro/flash, monitor/narrator -> flash_lite) or
+  inherits your active model. If the user asks for a different model, use exactly
+  what they requested. `swarm{action:"models"}` lists what you can run,
+  `add{model}` pins it, and `swarm{action:"status"}` shows what each worker is
+  running. If a member hits quota exhaustion (429), hot-swap it immediately with
+  `swarm{action:"model", name:"<member>", model:"fallback"}` (or specify another
+  model/tier); say why when you do.
 - **Stay lean.** Add a worker when work is queued and nobody is free; kill one
   when there is nothing left for it to pick up (never the narrator or the
   monitor).

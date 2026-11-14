@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizePath, getSwarmDir, readState, updateState, ensureGitExclude, isTerminalStatus, } from "./state.js";
 import { postMessage } from "./board.js";
+import { resolveModelForRole, getQuotaFallbackModel } from "./detector.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const execFileAsync = promisify(execFile);
@@ -802,7 +803,17 @@ export async function spawnAgentNode(options, cwd = process.cwd()) {
         const effectiveRole = options.role ||
             sourceAgent?.role ||
             (options.parentId ? "helper" : "worker");
-        const effectiveModel = options.model || sourceAgent?.model || state.leaderModel || undefined;
+        const effectiveModel = resolveModelForRole({
+            role: effectiveRole,
+            requestedModel: options.model,
+            leaderModel: state.leaderModel,
+            sourceModel: sourceAgent?.model || parentAgent?.model,
+            fork: options.fork,
+            parentId: options.parentId,
+            brief: effectiveBrief,
+            name,
+            cwd,
+        });
         const effectiveSystemPrompt = options.systemPrompt || sourceAgent?.systemPrompt;
         const effectiveChannels = options.channels && options.channels.length > 0
             ? options.channels
@@ -944,8 +955,8 @@ export async function cascadeKill(agentName, options = {}, cwd = process.cwd()) 
  */
 export async function updateAgentModel(agentName, newModel, cwd = process.cwd()) {
     const swarmDir = getSwarmDir(cwd);
-    const modelId = (newModel || "").trim();
-    if (!modelId) {
+    const rawModel = (newModel || "").trim();
+    if (!rawModel) {
         throw new Error("Model identifier cannot be empty or whitespace");
     }
     return await updateState(async (state) => {
@@ -956,7 +967,21 @@ export async function updateAgentModel(agentName, newModel, cwd = process.cwd())
         if (isTerminalStatus(agent.status) || agent.killed === true) {
             throw new Error(`Cannot hot-swap model on terminal agent '${agentName}' (status: ${agent.status})`);
         }
-        agent.model = modelId;
+        let resolved = rawModel;
+        if (["fallback", "auto", "quota_failover", "next"].includes(rawModel.toLowerCase())) {
+            const current = agent.model || state.leaderModel || "gemini-3.8-flash";
+            resolved = getQuotaFallbackModel(current);
+        }
+        else if (["pro", "flash", "flash_lite"].includes(rawModel.toLowerCase())) {
+            resolved = resolveModelForRole({
+                role: agent.role,
+                requestedModel: rawModel,
+                leaderModel: state.leaderModel,
+                name: agent.name,
+                cwd,
+            });
+        }
+        agent.model = resolved;
         return agent;
     }, swarmDir);
 }
