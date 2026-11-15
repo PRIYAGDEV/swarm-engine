@@ -514,7 +514,15 @@ export function resolveModelForRole(options: ResolveModelOptions): string {
 
   // 1. Explicit model handling
   if (req && req !== "default" && req !== "auto") {
-    if (req.toLowerCase() === "inherit") {
+    const normReq = req.toLowerCase();
+    if (
+      normReq === "inherit" ||
+      normReq === "same as parent" ||
+      normReq === "same as parent model" ||
+      normReq === "parent" ||
+      normReq === "parent model" ||
+      normReq === "same as leader"
+    ) {
       if (options.sourceModel) return options.sourceModel;
       if (options.leaderModel && options.leaderModel !== "default") return options.leaderModel;
       const detected = detectActiveModelsSync(options.cwd);
