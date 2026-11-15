@@ -171,17 +171,27 @@ function detectFromEditorSettings() {
     }
     return undefined;
 }
+// In-memory short-TTL caches to minimize SQLite disk I/O and prevent handle contention
+let _cachedOpenCodeModel;
+let _cachedOpenCodeSubagents;
 /**
  * Detects active model and session metadata from OpenCode local database (~/.local/share/opencode/opencode.db).
  */
 export function detectFromOpenCode(cwd = process.cwd()) {
+    const now = Date.now();
+    if (_cachedOpenCodeModel && _cachedOpenCodeModel.cwd === cwd && now < _cachedOpenCodeModel.expires) {
+        return _cachedOpenCodeModel.data;
+    }
     const home = process.env.USERPROFILE || process.env.HOME || "";
     const dbPath = path.join(home, ".local", "share", "opencode", "opencode.db");
-    if (!fs.existsSync(dbPath))
+    if (!fs.existsSync(dbPath)) {
+        _cachedOpenCodeModel = { cwd, data: undefined, expires: now + 5000 };
         return undefined;
+    }
+    let db;
     try {
         const sqlite = requireModule("node:sqlite");
-        const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+        db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
         const normCwd = cwd.replace(/\\/g, "/");
         const base = path.basename(cwd);
         const stmt = db.prepare(`
@@ -211,29 +221,46 @@ export function detectFromOpenCode(cwd = process.cwd()) {
                 cleanModel = "DeepSeek V4.1 Flash";
             else if (modelId.includes("deepseek-v4-flash"))
                 cleanModel = "DeepSeek V4 Flash";
-            return {
+            const res = {
                 leader: cleanModel,
                 worker: cleanModel,
                 source: `OpenCode (${row.title || base})`,
                 sessionId: row.id,
                 timeUpdated: row.time_updated,
             };
+            _cachedOpenCodeModel = { cwd, data: res, expires: now + 1500 };
+            return res;
         }
     }
     catch { }
+    finally {
+        try {
+            if (db)
+                db.close();
+        }
+        catch { }
+    }
+    _cachedOpenCodeModel = { cwd, data: undefined, expires: now + 2000 };
     return undefined;
 }
 /**
  * Queries active child subagents created inside OpenCode for the workspace root session.
  */
 export function getOpenCodeSubagents(cwd = process.cwd()) {
+    const now = Date.now();
+    if (_cachedOpenCodeSubagents && _cachedOpenCodeSubagents.cwd === cwd && now < _cachedOpenCodeSubagents.expires) {
+        return _cachedOpenCodeSubagents.data;
+    }
     const home = process.env.USERPROFILE || process.env.HOME || "";
     const dbPath = path.join(home, ".local", "share", "opencode", "opencode.db");
-    if (!fs.existsSync(dbPath))
+    if (!fs.existsSync(dbPath)) {
+        _cachedOpenCodeSubagents = { cwd, data: undefined, expires: now + 5000 };
         return undefined;
+    }
+    let db;
     try {
         const sqlite = requireModule("node:sqlite");
-        const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+        db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
         const normCwd = cwd.replace(/\\/g, "/");
         const base = path.basename(cwd);
         const rootStmt = db.prepare(`
@@ -244,8 +271,10 @@ export function getOpenCodeSubagents(cwd = process.cwd()) {
       LIMIT 1
     `);
         const root = rootStmt.get(normCwd, `%${base}%`);
-        if (!root)
+        if (!root) {
+            _cachedOpenCodeSubagents = { cwd, data: undefined, expires: now + 2000 };
             return undefined;
+        }
         let rootModel = "DeepSeek V4.1 Flash Free";
         try {
             const p = JSON.parse(root.model);
@@ -261,8 +290,10 @@ export function getOpenCodeSubagents(cwd = process.cwd()) {
       ORDER BY time_created ASC
     `);
         const children = childStmt.all(root.id);
-        if (!children || children.length === 0)
+        if (!children || children.length === 0) {
+            _cachedOpenCodeSubagents = { cwd, data: undefined, expires: now + 2000 };
             return undefined;
+        }
         const roleMap = {
             "Scheduler + context switch": { id: "sched-worker", role: "author", files: ["kernel/src/sched.c", "kernel/src/switch.asm", "kernel/src/interrupt.c"] },
             "VFS + KFS filesystem": { id: "fs-worker", role: "author", files: ["kernel/fs/vfs.c", "kernel/fs/kfs.c"] },
@@ -285,7 +316,10 @@ export function getOpenCodeSubagents(cwd = process.cwd()) {
             else if (ch.idle_outcome === "failed")
                 status = "failed";
             const preset = roleMap[ch.title] || {};
-            const agentId = preset.id || ch.slug || ch.id.slice(0, 12);
+            // Dynamic fallback for any arbitrary project subagent
+            const extractedFiles = preset.files || (ch.title ? (ch.title.match(/[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]{1,6}/g) || []).filter((f) => !f.startsWith("http") && !f.includes("..")) : []);
+            const fallbackId = ch.title ? ch.title.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 20) : ch.id.slice(0, 12);
+            const agentId = preset.id || ch.slug || fallbackId;
             result.push({
                 id: agentId,
                 name: agentId,
@@ -293,12 +327,21 @@ export function getOpenCodeSubagents(cwd = process.cwd()) {
                 status,
                 model: chModel,
                 brief: ch.title || "Subagent task",
-                targetFiles: preset.files || [],
+                targetFiles: extractedFiles,
             });
         }
+        _cachedOpenCodeSubagents = { cwd, data: result, expires: now + 1500 };
         return result;
     }
     catch { }
+    finally {
+        try {
+            if (db)
+                db.close();
+        }
+        catch { }
+    }
+    _cachedOpenCodeSubagents = { cwd, data: undefined, expires: now + 2000 };
     return undefined;
 }
 /**

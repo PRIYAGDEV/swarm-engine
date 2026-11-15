@@ -22,6 +22,7 @@
 import http from "node:http";
 import { getSwarmDir, readState, updateState } from "./state.js";
 import { readBoardMessages, postMessage, boardEventBus } from "./board.js";
+import { detectActiveModelsSync, getOpenCodeSubagents } from "./detector.js";
 function escapeHtml(str) {
     if (!str)
         return "";
@@ -1485,7 +1486,6 @@ export async function loadSwarmBoardData(cwd) {
     // Dynamically resolve active model fallback
     let detectedLeader;
     try {
-        const { detectActiveModelsSync } = await import("./detector.js");
         const detected = detectActiveModelsSync(cwd);
         detectedLeader = detected.leaderModel;
     }
@@ -1519,7 +1519,6 @@ export async function loadSwarmBoardData(cwd) {
     // Check if OpenCode has live subagents in opencode.db
     let opencodeSubagents;
     try {
-        const { getOpenCodeSubagents } = await import("./detector.js");
         opencodeSubagents = getOpenCodeSubagents(cwd);
     }
     catch { }
@@ -1841,7 +1840,10 @@ export async function startBoardServer(options) {
         if (url.pathname === "/api/data") {
             try {
                 const data = await loadSwarmBoardData(cwd);
-                res.writeHead(200, { "Content-Type": "application/json" });
+                res.writeHead(200, {
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-cache, no-store, must-revalidate"
+                });
                 res.end(JSON.stringify(data));
             }
             catch (err) {
@@ -1868,7 +1870,10 @@ export async function startBoardServer(options) {
                     const swarmDir = getSwarmDir(cwd);
                     const state = await readState(swarmDir).catch(() => undefined);
                     const msg = await postMessage(state || swarmDir, swarmDir, { text, from });
-                    res.writeHead(200, { "Content-Type": "application/json" });
+                    res.writeHead(200, {
+                        "Content-Type": "application/json",
+                        "Cache-Control": "no-cache, no-store, must-revalidate"
+                    });
                     res.end(JSON.stringify({ success: true, message: msg }));
                 }
                 catch (err) {
@@ -1910,7 +1915,10 @@ export async function startBoardServer(options) {
                         }
                     }, swarmDir);
                     const data = await loadSwarmBoardData(cwd);
-                    res.writeHead(200, { "Content-Type": "application/json" });
+                    res.writeHead(200, {
+                        "Content-Type": "application/json",
+                        "Cache-Control": "no-cache, no-store, must-revalidate"
+                    });
                     res.end(JSON.stringify({ success: true, data }));
                 }
                 catch (err) {

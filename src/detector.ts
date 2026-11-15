@@ -215,17 +215,30 @@ export interface OpenCodeSubagentInfo {
   targetFiles?: string[];
 }
 
+// In-memory short-TTL caches to minimize SQLite disk I/O and prevent handle contention
+let _cachedOpenCodeModel: { cwd: string; data?: { leader?: string; worker?: string; source?: string; sessionId?: string; timeUpdated?: number }; expires: number } | undefined;
+let _cachedOpenCodeSubagents: { cwd: string; data?: OpenCodeSubagentInfo[]; expires: number } | undefined;
+
 /**
  * Detects active model and session metadata from OpenCode local database (~/.local/share/opencode/opencode.db).
  */
 export function detectFromOpenCode(cwd: string = process.cwd()): { leader?: string; worker?: string; source?: string; sessionId?: string; timeUpdated?: number } | undefined {
+  const now = Date.now();
+  if (_cachedOpenCodeModel && _cachedOpenCodeModel.cwd === cwd && now < _cachedOpenCodeModel.expires) {
+    return _cachedOpenCodeModel.data;
+  }
+
   const home = process.env.USERPROFILE || process.env.HOME || "";
   const dbPath = path.join(home, ".local", "share", "opencode", "opencode.db");
-  if (!fs.existsSync(dbPath)) return undefined;
+  if (!fs.existsSync(dbPath)) {
+    _cachedOpenCodeModel = { cwd, data: undefined, expires: now + 5000 };
+    return undefined;
+  }
 
+  let db: any;
   try {
     const sqlite = requireModule("node:sqlite");
-    const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
     const normCwd = cwd.replace(/\\/g, "/");
     const base = path.basename(cwd);
 
@@ -254,15 +267,20 @@ export function detectFromOpenCode(cwd: string = process.cwd()): { leader?: stri
       else if (modelId.includes("deepseek-v4.1-flash")) cleanModel = "DeepSeek V4.1 Flash";
       else if (modelId.includes("deepseek-v4-flash")) cleanModel = "DeepSeek V4 Flash";
 
-      return {
+      const res = {
         leader: cleanModel,
         worker: cleanModel,
         source: `OpenCode (${row.title || base})`,
         sessionId: row.id,
         timeUpdated: row.time_updated,
       };
+      _cachedOpenCodeModel = { cwd, data: res, expires: now + 1500 };
+      return res;
     }
-  } catch {}
+  } catch {} finally {
+    try { if (db) db.close(); } catch {}
+  }
+  _cachedOpenCodeModel = { cwd, data: undefined, expires: now + 2000 };
   return undefined;
 }
 
@@ -270,13 +288,22 @@ export function detectFromOpenCode(cwd: string = process.cwd()): { leader?: stri
  * Queries active child subagents created inside OpenCode for the workspace root session.
  */
 export function getOpenCodeSubagents(cwd: string = process.cwd()): OpenCodeSubagentInfo[] | undefined {
+  const now = Date.now();
+  if (_cachedOpenCodeSubagents && _cachedOpenCodeSubagents.cwd === cwd && now < _cachedOpenCodeSubagents.expires) {
+    return _cachedOpenCodeSubagents.data;
+  }
+
   const home = process.env.USERPROFILE || process.env.HOME || "";
   const dbPath = path.join(home, ".local", "share", "opencode", "opencode.db");
-  if (!fs.existsSync(dbPath)) return undefined;
+  if (!fs.existsSync(dbPath)) {
+    _cachedOpenCodeSubagents = { cwd, data: undefined, expires: now + 5000 };
+    return undefined;
+  }
 
+  let db: any;
   try {
     const sqlite = requireModule("node:sqlite");
-    const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
     const normCwd = cwd.replace(/\\/g, "/");
     const base = path.basename(cwd);
 
@@ -288,7 +315,10 @@ export function getOpenCodeSubagents(cwd: string = process.cwd()): OpenCodeSubag
       LIMIT 1
     `);
     const root = rootStmt.get(normCwd, `%${base}%`);
-    if (!root) return undefined;
+    if (!root) {
+      _cachedOpenCodeSubagents = { cwd, data: undefined, expires: now + 2000 };
+      return undefined;
+    }
 
     let rootModel = "DeepSeek V4.1 Flash Free";
     try {
@@ -305,7 +335,10 @@ export function getOpenCodeSubagents(cwd: string = process.cwd()): OpenCodeSubag
       ORDER BY time_created ASC
     `);
     const children = childStmt.all(root.id);
-    if (!children || children.length === 0) return undefined;
+    if (!children || children.length === 0) {
+      _cachedOpenCodeSubagents = { cwd, data: undefined, expires: now + 2000 };
+      return undefined;
+    }
 
     const roleMap: Record<string, { id: string; role: string; files: string[] }> = {
       "Scheduler + context switch": { id: "sched-worker", role: "author", files: ["kernel/src/sched.c", "kernel/src/switch.asm", "kernel/src/interrupt.c"] },
@@ -329,7 +362,11 @@ export function getOpenCodeSubagents(cwd: string = process.cwd()): OpenCodeSubag
       else if (ch.idle_outcome === "failed") status = "failed";
 
       const preset = roleMap[ch.title] || {};
-      const agentId = preset.id || ch.slug || ch.id.slice(0, 12);
+      
+      // Dynamic fallback for any arbitrary project subagent
+      const extractedFiles = preset.files || (ch.title ? (ch.title.match(/[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]{1,6}/g) || []).filter((f: string) => !f.startsWith("http") && !f.includes("..")) : []);
+      const fallbackId = ch.title ? ch.title.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 20) : ch.id.slice(0, 12);
+      const agentId = preset.id || ch.slug || fallbackId;
 
       result.push({
         id: agentId,
@@ -338,12 +375,16 @@ export function getOpenCodeSubagents(cwd: string = process.cwd()): OpenCodeSubag
         status,
         model: chModel,
         brief: ch.title || "Subagent task",
-        targetFiles: preset.files || [],
+        targetFiles: extractedFiles,
       });
     }
 
+    _cachedOpenCodeSubagents = { cwd, data: result, expires: now + 1500 };
     return result;
-  } catch {}
+  } catch {} finally {
+    try { if (db) db.close(); } catch {}
+  }
+  _cachedOpenCodeSubagents = { cwd, data: undefined, expires: now + 2000 };
   return undefined;
 }
 
