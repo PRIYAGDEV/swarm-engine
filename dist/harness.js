@@ -310,7 +310,8 @@ You are executing in the **Claude Code** agent harness.
 You are executing in the **Kilo Code / Kilo CLI** agent harness.
 1. Execute file edits in this workspace using configured provider: \`${agent.model}\`.
 2. Ensure no file lock conflicts occur with other running subagents.
-3. Call \`complete_agent_task\` or run \`swarm-engine complete ${agent.id} "<summary>"\` when ready.
+3. Direct execution: Keep reasoning minimal (under 50 words). Focus token budget strictly on outputting code, edits, and test runs to avoid hitting model output token limits.
+4. Call \`complete_agent_task\` or run \`swarm-engine complete ${agent.id} "<summary>"\` when ready.
 `;
         case "roo-cline":
             return `${header}
