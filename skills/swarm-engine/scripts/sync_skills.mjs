@@ -71,10 +71,22 @@ export function getTargetEnvironments() {
       required: true,
     },
     {
-      name: "Kilo CLI",
+      name: "Kilo CLI (~/.config/kilo)",
       parentDir: path.join(home, ".config", "kilo"),
       targetDir: path.join(home, ".config", "kilo", "skills", "swarm-engine"),
       required: true,
+    },
+    {
+      name: "Kilo Root (~/.kilo)",
+      parentDir: path.join(home, ".kilo", "skills"),
+      targetDir: path.join(home, ".kilo", "skills", "swarm-engine"),
+      required: false,
+    },
+    {
+      name: "Codex CLI (~/.codex)",
+      parentDir: path.join(home, ".codex", "skills"),
+      targetDir: path.join(home, ".codex", "skills", "swarm-engine"),
+      required: false,
     },
     {
       name: "Cline",
