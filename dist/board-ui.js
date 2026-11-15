@@ -671,6 +671,28 @@ export function generateSwarmBoardHtml(initialData, options) {
     document.body.removeChild(el);
   }
 
+  function copyElementText(el, label, event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const clone = el.cloneNode(true);
+    const badge = clone.querySelector(".opacity-40");
+    if (badge) badge.remove();
+    const text = clone.textContent.trim();
+    copySnippet(text, label, event);
+  }
+
+  function copyMessage(seq, event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const msg = (swarmData.messages || []).find(m => m.seq === seq);
+    if (!msg) return;
+    copySnippet(\`#\${msg.seq} @\${msg.from}: \${msg.text}\`, "Message", event);
+  }
+
   function jumpToMessage(seq, event) {
     if (event) {
       event.preventDefault();
@@ -717,13 +739,13 @@ export function generateSwarmBoardHtml(initialData, options) {
 
     // 4. Highlight commands dynamically
     escaped = escaped.replace(/(go (?:test|vet|fmt|build|run|mod) [^ \\n<]+|node (?:--test|-c) [^ \\n<]+|npm (?:test|run) [^ \\n<]+)/g, (match, cmd) => {
-      return \`<span class="code-chip cmd-chip group" onclick="copySnippet('\${cmd}', 'Command', event)" title="Click to copy command">\${cmd} <span class="opacity-40 group-hover:opacity-100 text-[10px]">📋</span></span>\`;
+      return \`<span class="code-chip cmd-chip group" onclick="copyElementText(this, 'Command', event)" title="Click to copy command">\${cmd} <span class="opacity-40 group-hover:opacity-100 text-[10px]">📋</span></span>\`;
     });
 
     // 5. Highlight file paths
     escaped = escaped.replace(/(\\b(?:\\/[a-zA-Z0-9_.-]+)+|\\b[a-zA-Z0-9_.-]+\\/[a-zA-Z0-9_.-]+|\\b[a-zA-Z0-9_-]+\\.[a-z]{1,4}\\b)/g, (match, p) => {
       if (p.startsWith('http') || p.includes('&') || p.includes('span') || p.includes('class') || p === 'go' || p === 'js' || p === 'ts') return p;
-      return \`<span class="code-chip file-chip group" onclick="copySnippet('\${p}', 'File path', event)" title="Click to copy path">\${p} <span class="opacity-40 group-hover:opacity-100 text-[10px]">📋</span></span>\`;
+      return \`<span class="code-chip file-chip group" onclick="copyElementText(this, 'File path', event)" title="Click to copy path">\${p} <span class="opacity-40 group-hover:opacity-100 text-[10px]">📋</span></span>\`;
     });
 
     // 6. Handle expandable disclosure for commands or test outputs
@@ -863,7 +885,7 @@ export function generateSwarmBoardHtml(initialData, options) {
         </div>
         <div class="text-[var(--muted-foreground,#8e9196)] shrink-0 font-mono text-[11px] flex items-center gap-2">
           <span>#\${msg.seq} · \${msg.time || "now"}</span>
-          <button onclick="copySnippet(\`#\${msg.seq} @\${msg.from}: \${msg.text}\`, 'Message', event)" title="Copy message" class="opacity-0 group-hover:opacity-100 hover:text-white transition">
+          <button onclick="copyMessage(\${msg.seq}, event)" title="Copy message" class="opacity-0 group-hover:opacity-100 hover:text-white transition">
             📋
           </button>
         </div>
@@ -911,7 +933,7 @@ export function generateSwarmBoardHtml(initialData, options) {
       }
 
       const files = (member.targetFiles || []).map(f =>
-        \`<span class="code-chip file-chip group" onclick="copySnippet('\${escapeHtml(f)}', 'File path', event)" title="Click to copy path">\${escapeHtml(f)} <span class="opacity-40 group-hover:opacity-100 text-[10px]">📋</span></span>\`
+        \`<span class="code-chip file-chip group" onclick="copyElementText(this, 'File path', event)" title="Click to copy path">\${escapeHtml(f)} <span class="opacity-40 group-hover:opacity-100 text-[10px]">📋</span></span>\`
       ).join(" ");
 
       card.innerHTML = \`

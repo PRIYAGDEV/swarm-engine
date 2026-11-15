@@ -662,7 +662,7 @@ async function handleBoard(args: string[], cwd: string = process.cwd()): Promise
   const isHtml = hasFlag(args, "--html");
   const htmlPathArg = getFlagValue(args, "--html") || getFlagValue(args, "--out") || getFlagValue(args, "-o");
   const shouldOpen = hasFlag(args, "--open");
-  const isServe = hasFlag(args, "--serve", "-s");
+  const isServe = hasFlag(args, "--serve", "-s") || (!isPlain && !isHtml && !htmlPathArg && shouldOpen);
   const portStr = getFlagValue(args, "--port") || getFlagValue(args, "-p");
   const port = portStr ? parseInt(portStr, 10) : 3456;
 
