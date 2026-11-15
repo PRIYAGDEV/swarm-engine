@@ -1768,11 +1768,34 @@ export async function startBoardServer(options) {
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not Found");
     });
-    await new Promise((resolve, reject) => {
-        server.listen(port, () => resolve());
-        server.on("error", reject);
-    });
-    const finalUrl = `http://localhost:${port}`;
+    let activePort = port;
+    for (let attempt = 0; attempt < 10; attempt++) {
+        try {
+            await new Promise((resolve, reject) => {
+                const onError = (err) => {
+                    server.removeListener("listening", onListen);
+                    reject(err);
+                };
+                const onListen = () => {
+                    server.removeListener("error", onError);
+                    resolve();
+                };
+                server.once("error", onError);
+                server.once("listening", onListen);
+                server.listen(activePort);
+            });
+            break;
+        }
+        catch (err) {
+            if (err.code === "EADDRINUSE") {
+                activePort++;
+            }
+            else {
+                throw err;
+            }
+        }
+    }
+    const finalUrl = `http://localhost:${activePort}`;
     if (options?.open) {
         try {
             const { exec } = await import("node:child_process");

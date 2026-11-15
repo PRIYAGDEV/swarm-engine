@@ -1852,12 +1852,33 @@ export async function startBoardServer(options?: {
     res.end("Not Found");
   });
 
-  await new Promise<void>((resolve, reject) => {
-    server.listen(port, () => resolve());
-    server.on("error", reject);
-  });
+  let activePort = port;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (err: any) => {
+          server.removeListener("listening", onListen);
+          reject(err);
+        };
+        const onListen = () => {
+          server.removeListener("error", onError);
+          resolve();
+        };
+        server.once("error", onError);
+        server.once("listening", onListen);
+        server.listen(activePort);
+      });
+      break;
+    } catch (err: any) {
+      if (err.code === "EADDRINUSE") {
+        activePort++;
+      } else {
+        throw err;
+      }
+    }
+  }
 
-  const finalUrl = `http://localhost:${port}`;
+  const finalUrl = `http://localhost:${activePort}`;
 
   if (options?.open) {
     try {
