@@ -757,7 +757,7 @@ export function createMcpServer(): McpServer {
   // Tool 7: record_agent_action
   server.tool(
     "record_agent_action",
-    "Record a real-time tool action (Edit, Read, Bash, Update) executed by an agent so it streams to the Fable TUI dashboard.",
+    "Record a real-time tool action (Edit, Read, Bash, Update) executed by an agent so it streams to the terminal dashboard.",
     {
       agentId: z.string().describe("Target agent ID"),
       actionType: z.enum(["edit", "read", "bash", "update", "delete", "status"]).describe("Type of tool action"),
@@ -1198,7 +1198,7 @@ export function createMcpServer(): McpServer {
   // Tool 13: swarm
   server.tool(
     "swarm",
-    "Unified swarm management tool matching Google Antigravity & Carbon native swarm parity. Supports status, models, add, model, kill, title, and channel management.",
+    "Unified swarm management tool matching Google Antigravity multi-agent swarm parity. Supports status, models, add, model, kill, title, and channel management.",
     {
       action: z
         .enum(["channel", "status", "models", "add", "model", "kill", "title"])
@@ -2101,7 +2101,7 @@ export function createMcpServer(): McpServer {
   // Tool 15: get_swarm_board
   server.tool(
     "get_swarm_board",
-    "Returns live Swarm Engine Board data matching Google Antigravity & Carbon official Swarm split-view side pane (Board, Members, Graph tabs). Can also export or return self-contained Generative UI HTML.",
+    "Returns live Swarm Engine Board data matching Google Antigravity official Swarm split-view side pane (Board, Members, Graph tabs). Can also export or return self-contained Generative UI HTML.",
     {
       exportHtml: z
         .boolean()

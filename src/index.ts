@@ -583,7 +583,7 @@ async function handleWorker(args: string[], cwd: string = process.cwd()): Promis
 }
 
 /**
- * Handles the 'run' / 'start' subcommand to launch autonomous multi-agent execution with live Fable TUI.
+ * Handles the 'run' / 'start' subcommand to launch autonomous multi-agent execution with live terminal dashboard.
  */
 async function handleRun(args: string[], cwd: string = process.cwd()): Promise<void> {
   process.env.SWARM_AUTO_RUN = "1";
@@ -650,7 +650,7 @@ async function handleRun(args: string[], cwd: string = process.cwd()): Promise<v
   // Schedule agents and launch autonomous workers
   await tickScheduler(cwd);
 
-  // Stream live Fable TUI dashboard
+  // Stream live terminal dashboard
   await handleWatch(args, cwd);
 }
 
@@ -771,10 +771,10 @@ USAGE:
 SUBCOMMANDS:
   mcp                           Start Model Context Protocol stdio server
   init [mission] [options]      Initialize .swarm/, .gitignore, and AGENTS.md
-  run [mission] [options]       Launch autonomous swarm execution with live Fable TUI
+  run [mission] [options]       Launch autonomous swarm execution with live terminal dashboard
   start [mission] [options]     Alias for run
   worker <agentId>              Run an agent worker autonomously inside its worktree
-  status [options]              Display swarm status (Fable dashboard, table, or JSON)
+  status [options]              Display swarm status (terminal dashboard, table, or JSON)
   board [options]               Interactive Swarm Board UI (Board, Members, Graph)
   watch [options]               Live auto-refreshing swarm status dashboard
   dashboard [options]           Alias for watch (live interactive TUI dashboard)

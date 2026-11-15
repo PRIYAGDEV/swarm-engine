@@ -13,7 +13,7 @@ swarm-engine <subcommand> [options]
 | Subcommand | Description |
 |---|---|
 | `init` | Provisions `.swarm/`, configures `.gitignore`, and generates `AGENTS.md`. |
-| `run` / `start` | Launches autonomous multi-agent swarm execution with live Fable TUI. |
+| `run` / `start` | Launches autonomous multi-agent swarm execution with live terminal dashboard. |
 | `status` | Renders swarm status as a visual dashboard, ASCII table, or JSON. |
 | `watch` | Auto-refreshing live terminal dashboard (aliases: `dashboard`, `tui`). |
 | `worker` | Runs an agent worker autonomously inside its assigned workspace. |
@@ -72,7 +72,7 @@ swarm-engine status [options]
 ```
 
 - **Options**:
-  - *(no flags)*: Renders a static snapshot of the visual Fable card dashboard.
+  - *(no flags)*: Renders a static snapshot of the visual terminal card dashboard.
   - `--table`, `--plain`: Outputs an aligned, plain ASCII table (ideal for logs, grep, or CI pipelines).
   - `--json`: Outputs raw structured `SwarmState` JSON to standard output.
 - **Exit Codes**:

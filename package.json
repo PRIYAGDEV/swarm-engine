@@ -1,7 +1,7 @@
 {
   "name": "swarm-engine",
   "version": "1.1.0",
-  "description": "Multi-agent swarm orchestration CLI, stdio MCP server, and Fable TUI dashboard",
+  "description": "Multi-agent swarm orchestration CLI, stdio MCP server, interactive Terminal Dashboard, and live Web Board",
   "type": "module",
   "bin": {
     "swarm-engine": "./dist/index.js"

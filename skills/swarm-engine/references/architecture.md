@@ -123,9 +123,9 @@ Agents can be injected mid-flight into a live swarm:
 
 ---
 
-## 4. Fable Terminal Dashboard (TUI) & Model Detection
+## 4. Terminal Dashboard (TUI) & Model Detection
 
-Swarm Engine provides real-time terminal observability through its Fable visual subsystem.
+Swarm Engine provides real-time terminal observability through its visual subsystem.
 
 ### 4.1 Card-Based Telemetry
 The TUI renders ASCII cards for every agent in the swarm:

@@ -14,7 +14,7 @@ Swarm Engine provides a full-featured Model Context Protocol (MCP) server over s
 | `write_blackboard` | Stores shared types, schemas, and coordination keys | Auto-synced to all running `AGENT_TASK.md` |
 | `complete_agent_task` | Marks completed, cleans branches if used, releases locks | Triggers DAG scheduler for dependents |
 | `get_swarm_status` | Detailed snapshot of swarm state and active locks | Optional `detail: true` for full task specs |
-| `record_agent_action` | Streams live tool actions to Fable TUI | Reads, edits, diffs (+/-), shell commands |
+| `record_agent_action` | Streams live tool actions to terminal dashboard | Reads, edits, diffs (+/-), shell commands |
 | `update_agent_progress`| Updates real-time telemetry | Poetic verbs, tokens, tok/s velocity |
 | `run_agent_task` | Launches autonomous agent execution in workspace | Background worker runner |
 
@@ -337,7 +337,7 @@ Returns a complete snapshot of swarm mission, concurrency, agent statuses, activ
 ---
 
 ### 2.7 `record_agent_action`
-Streams a real-time tool action (edit, read, bash, update, delete, status) executed by an agent to the Fable TUI dashboard.
+Streams a real-time tool action (edit, read, bash, update, delete, status) executed by an agent to the terminal dashboard.
 
 #### Request Example
 ```json

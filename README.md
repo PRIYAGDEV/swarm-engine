@@ -3,11 +3,11 @@
 # ⚡ Swarm Engine
 
 ### Turn your AI assistant into an entire engineering team.
-**A pure Agent Skill for Antigravity, Claude Code, Kilo, and Roo Code · Unbounded parallel subagents · Zero Git collisions · Zero TUI overhead**
+**A pure Agent Skill for Antigravity, Claude Code, OpenCode, Kilo, and Roo Code · Unbounded parallel subagents · Zero Git collisions · Live Web Board & Terminal Dashboard**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 89 Passing](https://img.shields.io/badge/tests-89%20passing%20%7C%20100%25%20verified-brightgreen.svg)](test/)
-[![Antigravity Parity: 100%](https://img.shields.io/badge/Google%20Antigravity%20Parity-100%25%20Exact-purple.svg)](#-google-antigravity--carbon-swarm-parity)
+[![Tests: 96 Passing](https://img.shields.io/badge/tests-96%20passing%20%7C%20100%25%20verified-brightgreen.svg)](test/)
+[![Antigravity Parity: 100%](https://img.shields.io/badge/Google%20Antigravity%20Parity-100%25%20Exact-purple.svg)](#-google-antigravity-swarm-parity)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
 [![Zero Vulnerabilities](https://img.shields.io/badge/vulnerabilities-0-brightgreen.svg)](package.json)
@@ -18,7 +18,7 @@
   <b>Swarm Engine</b> is a <b>pure AI Agent Skill</b> that empowers your AI assistant to act as a full <b>Swarm Coordinator</b>—spawning specialized subagents, partitioning file ownership cleanly with zero worktree bloat, and synchronizing on a shared message board inside chat.
 </p>
 
-[Pure Skill Architecture](#-pure-agent-skill-architecture) • [How It Works](#-how-does-it-work) • [Using with Your AI Tool](#-using-with-your-favorite-ai-tool) • [FAQ](#-frequently-asked-questions)
+[Pure Skill Architecture](#-pure-agent-skill-architecture) • [How It Works](#-how-does-it-work) • [Using with Your AI Tool](#-using-with-your-favorite-ai-tool) • [The Swarm Board](#-the-swarm-engine-board-split-view-ui--cli) • [FAQ](#-frequently-asked-questions)
 
 </div>
 
@@ -30,17 +30,15 @@
 |:---|:---|:---|
 | **One Agent at a Time**<br>Tasks run sequentially. 5 tasks take 5× longer. | **Unlimited Parallel Subagents ($\infty$)**<br>Decomposes missions into 5 to 20+ specialized subagents. | **5x to 10x faster execution**. True concurrent throughput. |
 | **Git Conflicts & Overwrites**<br>Agents edit the same files and corrupt code. | **Direct Workspace Execution (Zero Worktrees)**<br>Coordinator partitions files cleanly (`workspace: "inherit"` by default). | **Zero git collisions.** Direct workspace editing without worktree bloat. |
-| **Silent Down-Tiering to Weaker Models**<br>Coding workers downgraded to Flash/Mini. | **Automatic User Model Inheritance**<br>Coders automatically run on your session model (`Gemini 4 Carbon`, `Claude 3.7 Sonnet`). | **Zero quality compromise.** Never downgraded. |
-| **Clunky External TUIs & Terminal Apps**<br>Forced to run CLI commands and watch spinners. | **Pure Agent Skill (Nothing Else)**<br>Operated 100% natively inside your AI assistant's chat. | **Zero context switching.** No terminal windows needed. |
-| **Fragile Framework-Specific MCPs**<br>Bespoke configs that break across tools. | **Universal Dynamic Harness Support**<br>Automatically adapts to Antigravity, Claude Code, Kilo, and Roo. | **Works everywhere.** Install once, run anywhere. |
+| **Silent Down-Tiering to Weaker Models**<br>Coding workers downgraded to low-spec models. | **Automatic User Model Inheritance**<br>Coders automatically run on your session model (`Gemini 3.5 Flash`, `Gemini 3.8 Pro`, `Claude 3.7 Sonnet`, `DeepSeek V4.1`). | **Zero quality compromise.** Never downgraded. |
+| **Clunky External Apps & Manual Overhead**<br>Forced to run separate CLI apps and watch spinners. | **Pure Agent Skill (Native in Chat)**<br>Operated 100% natively inside your AI assistant's chat. | **Zero context switching.** No terminal windows needed. |
+| **Fragile Framework-Specific MCPs**<br>Bespoke configs that break across tools. | **Universal Dynamic Harness Support**<br>Automatically adapts to Antigravity, OpenCode, Claude Code, Kilo, and Roo. | **Works everywhere.** Install once, run anywhere. |
 
 ---
 
 ## 🎯 Pure Agent Skill Architecture
 
-Swarm Engine is designed from the ground up as a **pure AI Agent Skill** (`SKILL.md`). There is no terminal dashboard to watch, no external TUI to run, and no manual CLI commands required.
-
-Your AI assistant loads the skill and uses four standard tools:
+Swarm Engine is designed from the ground up as a **pure AI Agent Skill** (`SKILL.md`). There is no complex terminal setup required to use it—your AI assistant loads the skill and uses four standard tools:
 
 | Tool | What It Does |
 |:---|:---|
@@ -51,25 +49,33 @@ Your AI assistant loads the skill and uses four standard tools:
 
 ---
 
-## 🚀 Using Swarm Engine as an Agent Skill
+## 🚀 Using Swarm Engine with Your Favorite AI Tool
 
 Swarm Engine installs natively as an Agent Skill across all major AI agent environments:
 
 <details open>
-<summary><b>⚡ Using with Google Antigravity / Gemini 4 Carbon</b></summary>
+<summary><b>⚡ Using with Google Antigravity</b></summary>
 
 1. Pre-installed globally at `~/.gemini/config/skills/swarm-engine/SKILL.md`.
 2. Antigravity discovers the skill and activates the Swarm Coordinator protocol.
 3. Simply instruct Antigravity in chat:
    > *"Run a swarm to build the authentication service, database models, and unit tests in parallel"*
-4. The coordinator automatically uses your active session model (e.g. `Gemini 4 Carbon` or `Gemini 3.8 Pro`) for all technical coders.
+4. The coordinator automatically uses your active session model (e.g. `Gemini 3.5 Flash` or `Gemini 3.8 Pro`) for all technical coders.
+</details>
+
+<details>
+<summary><b>🌐 Using with OpenCode</b></summary>
+
+1. Swarm Engine automatically detects active workspace sessions and subagents directly from OpenCode's runtime database (`~/.local/share/opencode/opencode.db`).
+2. Active editor models (`DeepSeek V4.1 Flash`, `GLM-5.3-Flash`, `Nara`, `Apinex`, etc.) and spawned subagents (`sched-worker`, `fs-worker`, `syscall-worker`, `gui-apps-worker`) sync directly to the live Swarm Board.
+3. Subagents run with direct workspace file ownership and real-time status reporting.
 </details>
 
 <details>
 <summary><b>🟣 Using with Claude Code</b></summary>
 
 1. Installed at `~/.claude/skills/swarm-engine/SKILL.md`.
-2. Claude Code automatically delegates multi-file tasks into parallel subagents inside isolated worktrees.
+2. Claude Code automatically delegates multi-file tasks into parallel subagents.
 3. Technical workers automatically inherit `Claude 3.7 Sonnet` without quality compromise.
 </details>
 
@@ -77,7 +83,7 @@ Swarm Engine installs natively as an Agent Skill across all major AI agent envir
 <summary><b>🤖 Using with Kilo Code / Kilo CLI</b></summary>
 
 1. Installed at `~/.config/kilo/skills/swarm-engine/SKILL.md`.
-2. Kilo reads your active model directly from `kilo.jsonc` (e.g. `MiniMax-M2.7`, `GLM-5.3-Flash`, `DeepSeek`).
+2. Kilo reads your active model directly from `kilo.jsonc` or editor state (e.g. `MiniMax-M2.7`, `GLM-5.3-Flash`, `DeepSeek`).
 3. Agents run concurrently with zero file collisions.
 </details>
 
@@ -131,13 +137,13 @@ Swarm Engine installs natively as an Agent Skill across all major AI agent envir
 
 ---
 
-## 🔮 Google Antigravity & Carbon Parity (Enhanced)
+## 🔮 Google Antigravity Swarm Parity (Enhanced)
 
 Swarm Engine delivers **100% architectural parity** with Google Antigravity's native `/swarm` and `/teamwork` skills, enhanced with production-grade isolation:
 
-1. **Automatic Teamwork Model Inheritance (Zero Quality Compromise)**:
-   - Technical coders, builders, and authors automatically inherit your active conversation model (`Gemini 4 Carbon`, `Claude 3.7 Sonnet`, `Gemini 3.8 Pro`).
-   - Operational stall monitors and narrators automatically use `flash_lite` to save quota during background checks.
+1. **Automatic Model Inheritance (Zero Quality Compromise)**:
+   - Technical coders, builders, and authors automatically inherit your active conversation model (`Gemini 3.5 Flash`, `Gemini 3.8 Pro`, `Claude 3.7 Sonnet`, `DeepSeek V4.1`).
+   - Operational stall monitors and background narrators automatically use lightweight models to save quota during checks.
    - Down-tiering to smaller models is strictly opt-in.
 2. **Doorbell Mentions & Monotonic Sequences**:
    - Every message is given a sequential `#seq` ID (`#1`, `#2`, `#3`).
@@ -145,8 +151,8 @@ Swarm Engine delivers **100% architectural parity** with Google Antigravity's na
    - Mentioning `@all` broadcasts to all active workers.
    - Channel mentions (`@#ui`) alert only subscribers to that topic stream.
 3. **Workspace Isolation & Fallback**:
-   - `inherit`: Shared working directory for readers and verifiers.
-   - `share`: Isolated Git worktrees for parallel authors.
+   - `inherit`: Shared working directory for direct in-place editing.
+   - `share`: Isolated Git worktrees for parallel authors when branch isolation is desired.
    - `branch`: Independent clones for experimental refactoring.
    - Non-Git fallback for directories without Git history.
 4. **Stall Watchdog (`monitor`)**:
@@ -156,11 +162,11 @@ Swarm Engine delivers **100% architectural parity** with Google Antigravity's na
 
 ## 📊 The Swarm Engine Board (Split-View UI & CLI)
 
-Swarm Engine reproduces Google Antigravity & Carbon's official Swarm split-view side pane (`https://antigravity.google/docs/swarm/`):
+Swarm Engine provides real-time observability through both a live Web Board and an interactive Terminal Dashboard:
 
 - **Header**: Swarm title (`stats and dedupe packages`), animated `● Live` status pulse, and manual refresh trigger.
 - **Tab 1: Board `<count>`**: Live monotonic sequence of immutable board posts with avatar chips, `@sender → @targets` mentions, sequence numbers (`#1`, `#2`, `#3`), timestamps (`2:24 PM`), path chips (`internal/stats/`), and real-time search.
-- **Tab 2: Members `<count>`**: Real-time team roster displaying status dots (🟢 Working, 🟡 Standing By / Sleeping, ⚪ Completed / Retired), assigned models (e.g. `Gemini 4 Carbon`, `Gemini 3.8 Flash`), target files, and token telemetry.
+- **Tab 2: Members `<count>`**: Real-time team roster displaying status dots (🟢 Working, 🟡 Standing By / Sleeping, ⚪ Completed / Retired), assigned models (e.g. `Gemini 3.5 Flash`, `Claude 3.7 Sonnet`, `DeepSeek V4.1`), target files, and token telemetry.
 - **Tab 3: Graph**: Interactive visual DAG node graph showing live communication channels, dependency edges, and collaboration sequence timeline.
 
 ```bash
@@ -170,11 +176,14 @@ swarm-engine board
 # Launch directly in default web browser
 swarm-engine board --open
 
-# Export standalone, self-contained HTML artifact styled with official Tailwind CSS
+# Export standalone, self-contained HTML artifact styled with Tailwind CSS
 swarm-engine board --html
 
 # Render aligned ANSI terminal board view
 swarm-engine board --plain
+
+# View live auto-refreshing terminal status dashboard
+swarm-engine watch
 ```
 
 ---
@@ -184,7 +193,7 @@ swarm-engine board --plain
 <details>
 <summary><b>Q: Do I need to run a CLI command or watch a terminal?</b></summary>
 
-**No.** Swarm Engine is a pure Agent Skill. You interact with your AI assistant in chat as usual. The assistant activates the skill, splits the work, and manages the swarm autonomously.
+**No.** Swarm Engine is a pure Agent Skill. You interact with your AI assistant in chat as usual. The assistant activates the skill, splits the work, and manages the swarm autonomously. The web board and terminal dashboard are completely optional observability interfaces.
 </details>
 
 <details>
@@ -202,7 +211,7 @@ Swarm Engine uses atomic POSIX/Windows directory file locks (`.swarm/state.lock`
 <details>
 <summary><b>Q: How do I re-sync skills across my machine?</b></summary>
 
-Run `npm run sync:skills` from the project repository to synchronize the canonical `SKILL.md` across Antigravity, Claude Code, Kilo, DeepSeek, and Roo Code.
+Run `npm run sync:skills` from the project repository to synchronize the canonical `SKILL.md` across Antigravity, Claude Code, OpenCode, Kilo, and Roo Code.
 </details>
 
 ---
