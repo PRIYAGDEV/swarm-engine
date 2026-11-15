@@ -628,6 +628,49 @@ async function handleBoard(args, cwd = process.cwd()) {
     }
 }
 /**
+ * Handles 'swarm-engine model <modelName> [agentId]' command to update models dynamically.
+ */
+async function handleModel(args, cwd = process.cwd()) {
+    const modelName = args[0];
+    const agentId = args[1];
+    if (!modelName || modelName.startsWith("-")) {
+        console.log("Usage: swarm-engine model <modelName> [agentId]");
+        console.log("Example: swarm-engine model deepseek-ai/DeepSeek-V4-Flash-0731");
+        return;
+    }
+    const swarmDir = getSwarmDir(cwd);
+    const state = await readState(swarmDir).catch(() => undefined);
+    if (!state) {
+        console.error("Swarm is not initialized in this directory.");
+        process.exit(1);
+    }
+    await updateState((s) => {
+        if (agentId && agentId !== "all" && agentId !== "coordinator") {
+            if (s.agents && s.agents[agentId]) {
+                s.agents[agentId].model = modelName;
+            }
+        }
+        else {
+            s.leaderModel = modelName;
+            if (s.agents) {
+                for (const a of Object.values(s.agents)) {
+                    a.model = modelName;
+                }
+            }
+        }
+    }, swarmDir);
+    // Re-export .swarm/board.html if it exists
+    const boardHtmlPath = path.join(swarmDir, "board.html");
+    try {
+        await fs.access(boardHtmlPath);
+        const data = await loadSwarmBoardData(cwd);
+        const html = generateSwarmBoardHtml(data);
+        await fs.writeFile(boardHtmlPath, html, "utf8");
+    }
+    catch { }
+    console.log(`✓ Swarm model successfully updated to: ${modelName}`);
+}
+/**
  * Prints the CLI help message.
  */
 function printHelp() {
@@ -732,6 +775,9 @@ async function main() {
             break;
         case "worker":
             await handleWorker(subArgs);
+            break;
+        case "model":
+            await handleModel(subArgs);
             break;
         default:
             console.error(`Unknown command: ${command}\nRun 'swarm-engine --help' for usage.`);

@@ -48,6 +48,14 @@ export declare function detectFromClaudeCode(cwd?: string): {
     source?: string;
 } | undefined;
 /**
+ * Detects the most recently selected model from VS Code / Kilo Code global storage (state.vscdb).
+ */
+export declare function detectFromVscdb(): {
+    leader?: string;
+    worker?: string;
+    source?: string;
+} | undefined;
+/**
  * Normalizes an Antigravity raw model display name or identifier into a canonical model string.
  * e.g.:
  * - "Gemini 3.8 Flash (High)" -> "gemini-3.8-flash"

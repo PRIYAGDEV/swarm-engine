@@ -204,6 +204,83 @@ function detectFromEditorSettings(): { leader?: string; worker?: string; source?
 }
 
 /**
+ * Detects the most recently selected model from VS Code / Kilo Code global storage (state.vscdb).
+ */
+export function detectFromVscdb(): { leader?: string; worker?: string; source?: string } | undefined {
+  const appData = process.env.APPDATA;
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+
+  const candidates: string[] = [];
+  if (process.platform === "win32" && appData) {
+    candidates.push(
+      path.join(appData, "Code", "User", "globalStorage", "state.vscdb"),
+      path.join(appData, "Kiro", "User", "globalStorage", "state.vscdb"),
+      path.join(appData, "kilo", "User", "globalStorage", "state.vscdb"),
+      path.join(appData, "Cursor", "User", "globalStorage", "state.vscdb")
+    );
+  } else if (process.platform === "darwin") {
+    candidates.push(
+      path.join(home, "Library", "Application Support", "Code", "User", "globalStorage", "state.vscdb"),
+      path.join(home, "Library", "Application Support", "kilo", "User", "globalStorage", "state.vscdb")
+    );
+  } else {
+    candidates.push(
+      path.join(home, ".config", "Code", "User", "globalStorage", "state.vscdb"),
+      path.join(home, ".config", "kilo", "User", "globalStorage", "state.vscdb")
+    );
+  }
+
+  const prefixes = [
+    "gonka/",
+    "dahl/",
+    "google/",
+    "token_router/",
+    "nvidiaintegrate/",
+    "bedrockmantle/",
+    "openrouter/",
+    "kilo/"
+  ];
+
+  let bestModel: string | undefined;
+  let maxTimestamp = 0;
+
+  for (const dbPath of candidates) {
+    if (!fs.existsSync(dbPath)) continue;
+    try {
+      const buf = fs.readFileSync(dbPath);
+      const str = buf.toString("latin1");
+      const regex = /"([^"\\]+)":\s*\{\s*"count"\s*:\s*\d+\s*,\s*"lastUsed"\s*:\s*(\d+)/g;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(str)) !== null) {
+        const rawModel = match[1];
+        const time = parseInt(match[2], 10);
+        if (time > maxTimestamp) {
+          maxTimestamp = time;
+          let cleaned = rawModel.trim();
+          for (const p of prefixes) {
+            if (cleaned.toLowerCase().startsWith(p)) {
+              cleaned = cleaned.slice(p.length);
+              break;
+            }
+          }
+          bestModel = cleaned;
+        }
+      }
+    } catch {}
+  }
+
+  if (bestModel) {
+    return {
+      leader: bestModel,
+      worker: bestModel,
+      source: "VS Code / Kilo active model",
+    };
+  }
+
+  return undefined;
+}
+
+/**
  * Normalizes an Antigravity raw model display name or identifier into a canonical model string.
  * e.g.:
  * - "Gemini 3.8 Flash (High)" -> "gemini-3.8-flash"
@@ -799,7 +876,17 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 4. Antigravity environment (active session, conversation transcript, state)
+  // 4. Active model selection in VS Code / Kilo Code (live dropdown selection in state.vscdb)
+  const fromVscdb = detectFromVscdb();
+  if (fromVscdb && (fromVscdb.leader || fromVscdb.worker)) {
+    return {
+      leaderModel: fromVscdb.leader || fromVscdb.worker,
+      workerModel: fromVscdb.worker || fromVscdb.leader,
+      source: fromVscdb.source,
+    };
+  }
+
+  // 5. Antigravity environment (active session, conversation transcript, state)
   const fromAntigravity = detectFromAntigravity();
   if (fromAntigravity && (fromAntigravity.leader || fromAntigravity.worker)) {
     return {
@@ -809,7 +896,7 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 5. Global Kilo CLI config (~/.config/kilo/kilo.jsonc)
+  // 6. Global Kilo CLI config (~/.config/kilo/kilo.jsonc)
   const fromGlobalKilo = detectFromGlobalKilo();
   if (fromGlobalKilo && (fromGlobalKilo.leader || fromGlobalKilo.worker)) {
     return {
@@ -819,7 +906,7 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 6. Claude Code configurations
+  // 7. Claude Code configurations
   const fromClaude = detectFromClaudeCode(cwd);
   if (fromClaude && (fromClaude.leader || fromClaude.worker)) {
     return {
@@ -829,7 +916,7 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 7. Editor settings (VS Code / Cursor / Sleepy Code)
+  // 8. Editor settings (VS Code / Cursor / Sleepy Code)
   const fromEditor = detectFromEditorSettings();
   if (fromEditor && (fromEditor.leader || fromEditor.worker)) {
     return {

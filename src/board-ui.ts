@@ -23,7 +23,7 @@
 import http from "node:http";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { SwarmState, getSwarmDir, readState, BoardMessage } from "./state.js";
+import { SwarmState, getSwarmDir, readState, updateState, BoardMessage } from "./state.js";
 import { readBoardMessages, postMessage, boardEventBus } from "./board.js";
 
 function escapeHtml(str: string | undefined): string {
@@ -1412,7 +1412,9 @@ Autonomous multi-agent execution completed with full verification and zero regre
         .then(res => res.json())
         .then(data => {
           swarmData = data;
-          document.getElementById("swarm-title").textContent = data.title;
+          const titleEl = document.getElementById("swarm-title");
+          if (titleEl) titleEl.textContent = data.title || "Swarm Engine Board";
+          document.title = (data.title || "Swarm Engine Board") + " — Swarm Board";
           renderFilterChips();
           if (activeTab === "board") renderBoard();
           if (activeTab === "members") renderMembers();
@@ -1425,6 +1427,37 @@ Autonomous multi-agent execution completed with full verification and zero regre
       showToast("Board refreshed", "info");
     }
   });
+
+  // Seamless 2-second background sync keeps board, members, and models 100% updated in real-time
+  if (liveEndpoint) {
+    let lastDataHash = "";
+    setInterval(() => {
+      if (document.hidden) return;
+      fetch(liveEndpoint + "/api/data")
+        .then(res => res.json())
+        .then(data => {
+          if (!data || !Array.isArray(data.members)) return;
+          const hash = JSON.stringify({
+            t: data.title,
+            mLen: (data.messages || []).length,
+            seq: data.headSeq,
+            mems: data.members.map(m => m.id + ":" + m.status + ":" + m.model + ":" + (m.poeticVerb || ""))
+          });
+          if (hash !== lastDataHash) {
+            lastDataHash = hash;
+            swarmData = data;
+            const titleEl = document.getElementById("swarm-title");
+            if (titleEl) titleEl.textContent = data.title || "Swarm Engine Board";
+            document.title = (data.title || "Swarm Engine Board") + " — Swarm Board";
+            renderFilterChips();
+            if (activeTab === "board") renderBoard();
+            if (activeTab === "members") renderMembers();
+            if (activeTab === "graph") renderGraph();
+          }
+        })
+        .catch(() => {});
+    }, 2000);
+  }
 
   // Global Keyboard Shortcuts
   window.addEventListener("keydown", (e) => {
@@ -1486,18 +1519,51 @@ export async function loadSwarmBoardData(cwd?: string): Promise<SwarmBoardData> 
 
   const members: SwarmBoardMember[] = [];
 
-  // Always include coordinator
+  // Dynamically resolve active model fallback
+  let detectedLeader: string | undefined;
+  try {
+    const { detectActiveModelsSync } = await import("./detector.js");
+    const detected = detectActiveModelsSync(cwd);
+    detectedLeader = detected.leaderModel;
+  } catch {}
+
+  const activeLeader = detectedLeader || state?.leaderModel || "DeepSeek-V4-Flash-0731";
+
+  // If detected active editor model differs from state leaderModel, sync them
+  const prevLeader = state?.leaderModel;
+  const shouldSyncToDetected = Boolean(
+    detectedLeader && (!prevLeader || prevLeader === "default" || prevLeader.includes("Hydrogen") || prevLeader !== detectedLeader)
+  );
+
+  if (state && shouldSyncToDetected && detectedLeader) {
+    state.leaderModel = detectedLeader;
+    if (state.agents?.coordinator) {
+      state.agents.coordinator.model = detectedLeader;
+    }
+    for (const agent of Object.values(state.agents || {})) {
+      if (!agent.model || agent.model === prevLeader || agent.model.includes("Hydrogen") || agent.model === "default" || agent.model === "inherit") {
+        agent.model = detectedLeader;
+      }
+    }
+  }
+
+  // Check if coordinator already exists in state.agents
+  const coordAgent = state?.agents ? state.agents["coordinator"] : undefined;
+
+  // Always include a single coordinator (preventing duplicates)
   members.push({
     id: "coordinator",
-    name: "coordinator",
-    role: "Coordinator 👑",
-    status: "working",
-    model: state?.leaderModel || "Gemini 4 Carbon",
-    brief: state?.mission || "Swarm coordinator",
+    name: coordAgent?.name || "coordinator",
+    role: coordAgent?.role || "Coordinator 👑",
+    status: coordAgent?.status === "waiting" ? "waiting" : "working",
+    model: coordAgent?.model || activeLeader,
+    brief: coordAgent?.brief || state?.mission || "Swarm coordinator",
   });
 
   if (state?.agents) {
     for (const [id, agent] of Object.entries(state.agents)) {
+      if (id === "coordinator") continue; // Prevent duplication
+
       let status: SwarmBoardMember["status"] = "working";
       if (agent.status === "waiting") status = "waiting";
       else if (agent.status === "completed") status = "completed";
@@ -1510,7 +1576,7 @@ export async function loadSwarmBoardData(cwd?: string): Promise<SwarmBoardData> 
         name: agent.name || id,
         role: agent.role || "worker",
         status,
-        model: agent.model || "Gemini 3.8 Flash",
+        model: agent.model || activeLeader,
         targetFiles: agent.targetFiles,
         taskSpec: agent.taskSpec,
         brief: agent.brief || agent.taskSpec,
@@ -1870,6 +1936,47 @@ export async function startBoardServer(options?: {
       return;
     }
 
+    if (url.pathname === "/api/model" && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", async () => {
+        try {
+          const parsed = JSON.parse(body || "{}");
+          const newModel = parsed.model;
+          const agentId = parsed.agentId;
+          if (!newModel) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Model is required" }));
+            return;
+          }
+          const swarmDir = getSwarmDir(cwd);
+          await updateState((s: SwarmState) => {
+            if (agentId && agentId !== "all" && agentId !== "coordinator") {
+              if (s.agents && s.agents[agentId]) {
+                s.agents[agentId].model = newModel;
+              }
+            } else {
+              s.leaderModel = newModel;
+              if (s.agents) {
+                for (const a of Object.values(s.agents) as any[]) {
+                  a.model = newModel;
+                }
+              }
+            }
+          }, swarmDir);
+          const data = await loadSwarmBoardData(cwd);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true, data }));
+        } catch (err: any) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message || String(err) }));
+        }
+      });
+      return;
+    }
+
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not Found");
   });
@@ -1900,6 +2007,17 @@ export async function startBoardServer(options?: {
     }
   }
 
+  // Bind secondary port (e.g. 3457 if primary is 3456, or 3456 if primary is 3457) so any browser tab works seamlessly
+  const secondaryPort = activePort === 3456 ? 3457 : 3456;
+  try {
+    const mirrorServer = http.createServer((req, res) => {
+      server.emit("request", req, res);
+    });
+    mirrorServer.listen(secondaryPort);
+    mirrorServer.on("error", () => {});
+    mirrorServer.unref();
+  } catch {}
+
   const finalUrl = `http://localhost:${activePort}`;
 
   if (options?.open) {
@@ -1910,5 +2028,5 @@ export async function startBoardServer(options?: {
     } catch {}
   }
 
-  return { server, url: finalUrl, port };
+  return { server, url: finalUrl, port: activePort };
 }
