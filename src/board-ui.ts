@@ -1541,7 +1541,7 @@ export async function loadSwarmBoardData(cwd?: string): Promise<SwarmBoardData> 
       state.agents.coordinator.model = detectedLeader;
     }
     for (const agent of Object.values(state.agents || {})) {
-      if (!agent.model || agent.model === prevLeader || agent.model.includes("Hydrogen") || agent.model === "default" || agent.model === "inherit") {
+      if (!agent.model || agent.model === prevLeader || agent.model.includes("Hydrogen") || agent.model.includes("mistral") || agent.model === "default" || agent.model === "inherit") {
         agent.model = detectedLeader;
       }
     }
@@ -1556,11 +1556,41 @@ export async function loadSwarmBoardData(cwd?: string): Promise<SwarmBoardData> 
     name: coordAgent?.name || "coordinator",
     role: coordAgent?.role || "Coordinator 👑",
     status: coordAgent?.status === "waiting" ? "waiting" : "working",
-    model: coordAgent?.model || activeLeader,
+    model: coordAgent?.model && !coordAgent.model.includes("mistral") ? coordAgent.model : activeLeader,
     brief: coordAgent?.brief || state?.mission || "Swarm coordinator",
   });
 
-  if (state?.agents) {
+  // Check if OpenCode has live subagents in opencode.db
+  let opencodeSubagents: any[] | undefined;
+  try {
+    const { getOpenCodeSubagents } = await import("./detector.js");
+    opencodeSubagents = getOpenCodeSubagents(cwd);
+  } catch {}
+
+  if (opencodeSubagents && opencodeSubagents.length > 0) {
+    for (const sub of opencodeSubagents) {
+      members.push({
+        id: sub.id,
+        name: sub.name,
+        role: sub.role,
+        status: sub.status,
+        model: sub.model,
+        brief: sub.brief,
+        targetFiles: sub.targetFiles,
+      });
+      if (state && state.agents) {
+        state.agents[sub.id] = {
+          id: sub.id,
+          name: sub.name,
+          role: sub.role,
+          status: sub.status,
+          model: sub.model,
+          brief: sub.brief,
+          targetFiles: sub.targetFiles,
+        } as any;
+      }
+    }
+  } else if (state?.agents) {
     for (const [id, agent] of Object.entries(state.agents)) {
       if (id === "coordinator") continue; // Prevent duplication
 
@@ -1576,7 +1606,7 @@ export async function loadSwarmBoardData(cwd?: string): Promise<SwarmBoardData> 
         name: agent.name || id,
         role: agent.role || "worker",
         status,
-        model: agent.model || activeLeader,
+        model: agent.model && !agent.model.includes("mistral") ? agent.model : activeLeader,
         targetFiles: agent.targetFiles,
         taskSpec: agent.taskSpec,
         brief: agent.brief || agent.taskSpec,

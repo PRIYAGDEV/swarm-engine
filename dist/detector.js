@@ -13,6 +13,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
+import { createRequire } from "node:module";
+const requireModule = createRequire(import.meta.url);
 /**
  * Extracts model strings from raw text using resilient regexes
  * that succeed even on non-standard/commented JSON files.
@@ -167,6 +169,136 @@ function detectFromEditorSettings() {
         }
         catch { }
     }
+    return undefined;
+}
+/**
+ * Detects active model and session metadata from OpenCode local database (~/.local/share/opencode/opencode.db).
+ */
+export function detectFromOpenCode(cwd = process.cwd()) {
+    const home = process.env.USERPROFILE || process.env.HOME || "";
+    const dbPath = path.join(home, ".local", "share", "opencode", "opencode.db");
+    if (!fs.existsSync(dbPath))
+        return undefined;
+    try {
+        const sqlite = requireModule("node:sqlite");
+        const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+        const normCwd = cwd.replace(/\\/g, "/");
+        const base = path.basename(cwd);
+        const stmt = db.prepare(`
+      SELECT id, model, directory, title, time_updated
+      FROM session_v2
+      WHERE directory = ? OR directory LIKE ?
+      ORDER BY time_updated DESC
+      LIMIT 1
+    `);
+        const row = stmt.get(normCwd, `%${base}%`);
+        if (row && row.model) {
+            let modelId = "";
+            try {
+                const parsed = JSON.parse(row.model);
+                modelId = parsed.id || parsed.modelID || "";
+                if (parsed.providerID && parsed.providerID !== "opencode") {
+                    modelId = `${parsed.providerID}/${modelId}`;
+                }
+            }
+            catch {
+                modelId = row.model;
+            }
+            let cleanModel = modelId;
+            if (modelId === "deepseek-v4.1-flash-free")
+                cleanModel = "DeepSeek V4.1 Flash Free";
+            else if (modelId.includes("deepseek-v4.1-flash"))
+                cleanModel = "DeepSeek V4.1 Flash";
+            else if (modelId.includes("deepseek-v4-flash"))
+                cleanModel = "DeepSeek V4 Flash";
+            return {
+                leader: cleanModel,
+                worker: cleanModel,
+                source: `OpenCode (${row.title || base})`,
+                sessionId: row.id,
+                timeUpdated: row.time_updated,
+            };
+        }
+    }
+    catch { }
+    return undefined;
+}
+/**
+ * Queries active child subagents created inside OpenCode for the workspace root session.
+ */
+export function getOpenCodeSubagents(cwd = process.cwd()) {
+    const home = process.env.USERPROFILE || process.env.HOME || "";
+    const dbPath = path.join(home, ".local", "share", "opencode", "opencode.db");
+    if (!fs.existsSync(dbPath))
+        return undefined;
+    try {
+        const sqlite = requireModule("node:sqlite");
+        const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+        const normCwd = cwd.replace(/\\/g, "/");
+        const base = path.basename(cwd);
+        const rootStmt = db.prepare(`
+      SELECT id, model, directory, title, time_updated
+      FROM session_v2
+      WHERE (directory = ? OR directory LIKE ?) AND parent_id IS NULL
+      ORDER BY time_updated DESC
+      LIMIT 1
+    `);
+        const root = rootStmt.get(normCwd, `%${base}%`);
+        if (!root)
+            return undefined;
+        let rootModel = "DeepSeek V4.1 Flash Free";
+        try {
+            const p = JSON.parse(root.model);
+            if (p.id) {
+                rootModel = p.id === "deepseek-v4.1-flash-free" ? "DeepSeek V4.1 Flash Free" : p.id;
+            }
+        }
+        catch { }
+        const childStmt = db.prepare(`
+      SELECT id, slug, title, agent, model, time_created, time_updated, idle_outcome
+      FROM session_v2
+      WHERE parent_id = ?
+      ORDER BY time_created ASC
+    `);
+        const children = childStmt.all(root.id);
+        if (!children || children.length === 0)
+            return undefined;
+        const roleMap = {
+            "Scheduler + context switch": { id: "sched-worker", role: "author", files: ["kernel/src/sched.c", "kernel/src/switch.asm", "kernel/src/interrupt.c"] },
+            "VFS + KFS filesystem": { id: "fs-worker", role: "author", files: ["kernel/fs/vfs.c", "kernel/fs/kfs.c"] },
+            "Desktop apps + login UI": { id: "gui-apps-worker", role: "author", files: ["kernel/gui/apps.c", "kernel/gui/login.c"] },
+            "Syscalls + IPC bus": { id: "syscall-worker", role: "author", files: ["kernel/src/syscall.c", "kernel/src/ipc.c"] },
+        };
+        const result = [];
+        for (const ch of children) {
+            let chModel = rootModel;
+            try {
+                const cp = JSON.parse(ch.model);
+                if (cp.id) {
+                    chModel = cp.id === "deepseek-v4.1-flash-free" ? "DeepSeek V4.1 Flash Free" : cp.id;
+                }
+            }
+            catch { }
+            let status = "working";
+            if (ch.idle_outcome === "succeeded")
+                status = "completed";
+            else if (ch.idle_outcome === "failed")
+                status = "failed";
+            const preset = roleMap[ch.title] || {};
+            const agentId = preset.id || ch.slug || ch.id.slice(0, 12);
+            result.push({
+                id: agentId,
+                name: agentId,
+                role: preset.role || ch.agent || "author",
+                status,
+                model: chModel,
+                brief: ch.title || "Subagent task",
+                targetFiles: preset.files || [],
+            });
+        }
+        return result;
+    }
+    catch { }
     return undefined;
 }
 /**
@@ -774,7 +906,16 @@ export function detectActiveModelsSync(cwd = process.cwd()) {
             source: fromLocalKilo.source,
         };
     }
-    // 4. Active model selection in VS Code / Kilo Code (live dropdown selection in state.vscdb)
+    // 4. OpenCode active project session (~/.local/share/opencode/opencode.db)
+    const fromOpenCode = detectFromOpenCode(cwd);
+    if (fromOpenCode && (fromOpenCode.leader || fromOpenCode.worker)) {
+        return {
+            leaderModel: fromOpenCode.leader || fromOpenCode.worker,
+            workerModel: fromOpenCode.worker || fromOpenCode.leader,
+            source: fromOpenCode.source,
+        };
+    }
+    // 5. Active model selection in VS Code / Kilo Code (live dropdown selection in state.vscdb)
     const fromVscdb = detectFromVscdb();
     if (fromVscdb && (fromVscdb.leader || fromVscdb.worker)) {
         return {
@@ -783,7 +924,7 @@ export function detectActiveModelsSync(cwd = process.cwd()) {
             source: fromVscdb.source,
         };
     }
-    // 5. Antigravity environment (active session, conversation transcript, state)
+    // 6. Antigravity environment (active session, conversation transcript, state)
     const fromAntigravity = detectFromAntigravity();
     if (fromAntigravity && (fromAntigravity.leader || fromAntigravity.worker)) {
         return {
@@ -792,7 +933,7 @@ export function detectActiveModelsSync(cwd = process.cwd()) {
             source: fromAntigravity.source,
         };
     }
-    // 6. Global Kilo CLI config (~/.config/kilo/kilo.jsonc)
+    // 7. Global Kilo CLI config (~/.config/kilo/kilo.jsonc)
     const fromGlobalKilo = detectFromGlobalKilo();
     if (fromGlobalKilo && (fromGlobalKilo.leader || fromGlobalKilo.worker)) {
         return {
@@ -801,7 +942,7 @@ export function detectActiveModelsSync(cwd = process.cwd()) {
             source: fromGlobalKilo.source,
         };
     }
-    // 7. Claude Code configurations
+    // 8. Claude Code configurations
     const fromClaude = detectFromClaudeCode(cwd);
     if (fromClaude && (fromClaude.leader || fromClaude.worker)) {
         return {
@@ -810,7 +951,7 @@ export function detectActiveModelsSync(cwd = process.cwd()) {
             source: fromClaude.source,
         };
     }
-    // 8. Editor settings (VS Code / Cursor / Sleepy Code)
+    // 9. Editor settings (VS Code / Cursor / Sleepy Code)
     const fromEditor = detectFromEditorSettings();
     if (fromEditor && (fromEditor.leader || fromEditor.worker)) {
         return {

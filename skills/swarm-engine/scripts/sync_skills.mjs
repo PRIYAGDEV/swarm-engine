@@ -83,6 +83,18 @@ export function getTargetEnvironments() {
       required: false,
     },
     {
+      name: "OpenCode CLI (~/.config/opencode)",
+      parentDir: path.join(home, ".config", "opencode"),
+      targetDir: path.join(home, ".config", "opencode", "skills", "swarm-engine"),
+      required: false,
+    },
+    {
+      name: "OpenCode Root (~/.opencode)",
+      parentDir: path.join(home, ".opencode"),
+      targetDir: path.join(home, ".opencode", "skills", "swarm-engine"),
+      required: false,
+    },
+    {
       name: "Codex CLI (~/.codex)",
       parentDir: path.join(home, ".codex", "skills"),
       targetDir: path.join(home, ".codex", "skills", "swarm-engine"),

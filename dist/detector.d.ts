@@ -47,6 +47,29 @@ export declare function detectFromClaudeCode(cwd?: string): {
     worker?: string;
     source?: string;
 } | undefined;
+export interface OpenCodeSubagentInfo {
+    id: string;
+    name: string;
+    role: string;
+    status: "pending" | "running" | "working" | "waiting" | "completed" | "failed" | "killed";
+    model: string;
+    brief: string;
+    targetFiles?: string[];
+}
+/**
+ * Detects active model and session metadata from OpenCode local database (~/.local/share/opencode/opencode.db).
+ */
+export declare function detectFromOpenCode(cwd?: string): {
+    leader?: string;
+    worker?: string;
+    source?: string;
+    sessionId?: string;
+    timeUpdated?: number;
+} | undefined;
+/**
+ * Queries active child subagents created inside OpenCode for the workspace root session.
+ */
+export declare function getOpenCodeSubagents(cwd?: string): OpenCodeSubagentInfo[] | undefined;
 /**
  * Detects the most recently selected model from VS Code / Kilo Code global storage (state.vscdb).
  */
