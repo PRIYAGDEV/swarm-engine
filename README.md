@@ -18,7 +18,7 @@
   <b>Swarm Engine</b> is a <b>pure AI Agent Skill</b> that empowers your AI assistant to act as a full <b>Swarm Coordinator</b>—spawning specialized subagents, partitioning file ownership cleanly with zero worktree bloat, and synchronizing on a shared message board inside chat.
 </p>
 
-[Pure Skill Architecture](#-pure-agent-skill-architecture) • [How It Works](#-how-does-it-work) • [Using with Your AI Tool](#-using-with-your-favorite-ai-tool) • [The Swarm Board](#-the-swarm-engine-board-split-view-ui--cli) • [FAQ](#-frequently-asked-questions)
+[Installation Guide](#-installation-guide) • [Pure Skill Architecture](#-pure-agent-skill-architecture) • [How It Works](#-how-does-it-work) • [Using with Your AI Tool](#-using-with-your-favorite-ai-tool) • [The Swarm Board](#-the-swarm-engine-board-split-view-ui--cli) • [FAQ](#-frequently-asked-questions)
 
 </div>
 
@@ -33,6 +33,108 @@
 | **Silent Down-Tiering to Weaker Models**<br>Coding workers downgraded to low-spec models. | **Automatic User Model Inheritance**<br>Coders automatically run on your session model (`Gemini 3.5 Flash`, `Gemini 3.8 Pro`, `Claude 3.7 Sonnet`, `DeepSeek V4.1`). | **Zero quality compromise.** Never downgraded. |
 | **Clunky External Apps & Manual Overhead**<br>Forced to run separate CLI apps and watch spinners. | **Pure Agent Skill (Native in Chat)**<br>Operated 100% natively inside your AI assistant's chat. | **Zero context switching.** No terminal windows needed. |
 | **Fragile Framework-Specific MCPs**<br>Bespoke configs that break across tools. | **Universal Dynamic Harness Support**<br>Automatically adapts to Antigravity, OpenCode, Claude Code, Kilo, and Roo. | **Works everywhere.** Install once, run anywhere. |
+
+---
+
+## 📦 Installation Guide
+
+You can install and use Swarm Engine in multiple ways depending on your preferred workflow:
+
+### Method 1: Automatic 1-Command Skill Install (Recommended) ⚡
+
+The fastest way to install the skill across **all** coding assistants on your machine (Google Antigravity, OpenCode, Claude Code, Kilo, Roo Code, Cursor, Continue):
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/PRIYAGDEV/swarm-engine.git
+cd swarm-engine
+
+# 2. Install dependencies & build
+npm install
+npm run build
+
+# 3. Synchronize the skill to all detected AI environments
+npm run sync:skills
+```
+
+> **What this does**: Automatically discovers installed agent environments and installs the `swarm-engine` skill package into their canonical directories (`~/.gemini/config/skills`, `~/.claude/skills`, `~/.config/opencode/skills`, `~/.config/kilo/skills`, `~/.roo/skills`, etc.).
+
+---
+
+### Method 2: Global CLI & Live Web Board 🌐
+
+Install the `swarm-engine` CLI globally to access the command-line tools, live HTTP Web Board server, and interactive terminal dashboard:
+
+```bash
+# Clone and install globally
+git clone https://github.com/PRIYAGDEV/swarm-engine.git
+cd swarm-engine
+npm install -g .
+```
+
+Verify the installation:
+```bash
+swarm-engine --help
+```
+
+---
+
+### Method 3: Direct Manual Skill Copy (Zero Build Needed) 📂
+
+If you want to use Swarm Engine purely as an AI prompt skill without running Node.js build commands, simply copy the `skills/swarm-engine` folder directly into your tool's skill folder:
+
+| AI Assistant | Target Skills Directory |
+|:---|:---|
+| **Google Antigravity** | `~/.gemini/config/skills/swarm-engine` |
+| **OpenCode** | `~/.config/opencode/skills/swarm-engine` |
+| **Claude Code** | `~/.claude/skills/swarm-engine` |
+| **Kilo Code / Kilo CLI** | `~/.config/kilo/skills/swarm-engine` |
+| **Roo Code / Cline** | `~/.roo/skills/swarm-engine` *(or `~/.cline/skills/`)* |
+| **Cursor / Continue** | `~/.cursor/skills/swarm-engine` *(or `~/.continue/skills/`)* |
+
+---
+
+### Method 4: Model Context Protocol (MCP) Server Setup 🔌
+
+Swarm Engine includes a full Model Context Protocol (MCP) server exposing 15 tools for swarm orchestration, atomic directory locking, blackboard memory, and board telemetry.
+
+Add it to your MCP configuration (e.g. `opencode.jsonc`, `claude_desktop_config.json`, or IDE MCP settings):
+
+```json
+{
+  "mcpServers": {
+    "swarm-engine": {
+      "command": "swarm-engine",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Or execute via Node directly with the built distribution:
+```json
+{
+  "mcpServers": {
+    "swarm-engine": {
+      "command": "node",
+      "args": ["/absolute/path/to/swarm-engine/dist/index.js", "mcp"]
+    }
+  }
+}
+```
+
+---
+
+### 🚦 Quick Start Verification
+
+Once installed, simply open your AI assistant inside any project workspace and ask:
+
+> *"Run a swarm to build the authentication service, database models, and unit tests in parallel."*
+
+To monitor the swarm in real-time, launch the visual board:
+```bash
+swarm-engine board --open
+```
 
 ---
 
