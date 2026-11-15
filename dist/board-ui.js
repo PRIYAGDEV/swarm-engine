@@ -5,13 +5,16 @@
  * & Teamwork Swarm split-view side pane and wide dashboard.
  *
  * Key Optimizations & Usability Features:
+ * - 100% Dynamic & Universal: Auto-adapts to ANY swarm, ANY number of workers, and ANY task
+ * - Dynamic SVG Topology DAG: Computes node coordinates, directed communication links, and active pulses
+ * - Dynamic Filter Chips: Automatically generated from active swarm member roster
+ * - Dynamic Avatar Colors: Deterministic vibrant color hashing across 8 palette families
  * - 3 Primary Tabs: Board <count>, Members <count>, Graph
  * - Live status indicator (● Live) with animated pulse
  * - Clickable Cross-Reference Links (ref #1, ref #5, #6) that smooth-scroll and highlight target posts
  * - Click-to-copy file path & command chips with instant floating toast confirmations
  * - One-click "Export PR Markdown Report" compiling verification passes, diffs, and audit trail
  * - Density Switcher (Comfortable vs Compact) and Width Switcher (Side-Pane vs Wide Canvas)
- * - Smart Filter Facets: All, By Member, 📁 Files Added, ✅ Verifications, ⚡ Directives
  * - Interactive Timeline Scrubber in the Graph view with step-by-step node/edge illumination & playback
  * - Direct member card quick-actions ("💬 Message @agent") prefilling composer
  * - Complete Terminal TUI viewer with keyboard navigation (j/k, p, c, f, tab, enter, esc)
@@ -448,17 +451,9 @@ export function generateSwarmBoardHtml(initialData, options) {
       </button>
     </div>
 
-    <!-- Quick filter facet chips -->
+    <!-- Dynamic Quick filter facet chips -->
     <div id="filter-chips" class="hidden flex-wrap gap-1.5 mt-2 pt-2 border-t border-[var(--border,#282a2c)] text-[11px]">
-      <span class="text-[var(--muted-foreground,#8e9196)] py-0.5">Filter:</span>
-      <button onclick="applyFilter('')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[var(--foreground,#fff)] border border-[var(--card-border,#333)] hover:border-[#555]">All</button>
-      <button onclick="applyFilter('@coordinator')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[var(--muted-foreground,#8e9196)] hover:text-white border border-transparent">@coordinator</button>
-      <button onclick="applyFilter('@stats')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[var(--muted-foreground,#8e9196)] hover:text-white border border-transparent">@stats</button>
-      <button onclick="applyFilter('@dedupe')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[var(--muted-foreground,#8e9196)] hover:text-white border border-transparent">@dedupe</button>
-      <button onclick="applyFilter('@verifier')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[var(--muted-foreground,#8e9196)] hover:text-white border border-transparent">@verifier</button>
-      <button onclick="applyFilter('Files added:')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[#93c5fd] hover:text-white border border-transparent">📁 Files Added</button>
-      <button onclick="applyFilter('verification')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[#81c995] hover:text-white border border-transparent">✅ Verifications</button>
-      <button onclick="applyFilter('You own')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[#fdd663] hover:text-white border border-transparent">⚡ Directives</button>
+      <!-- Populated dynamically by renderFilterChips() -->
     </div>
   </div>
 
@@ -511,7 +506,7 @@ export function generateSwarmBoardHtml(initialData, options) {
           <div class="font-medium text-[var(--foreground,#e3e3e3)] flex items-center gap-2">
             <span>Execution Scrubber</span>
             <span id="scrubber-step-badge" class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[rgba(138,180,248,0.15)] text-[var(--primary,#8ab4f8)]">
-              Step 8 of 8
+              Step 1
             </span>
           </div>
           <div class="flex items-center gap-1.5">
@@ -528,7 +523,7 @@ export function generateSwarmBoardHtml(initialData, options) {
           id="timeline-slider"
           min="1"
           max="8"
-          value="8"
+          value="1"
           oninput="setScrubberStep(parseInt(this.value, 10))"
           class="w-full accent-[var(--primary,#8ab4f8)] cursor-pointer"
         />
@@ -596,7 +591,7 @@ export function generateSwarmBoardHtml(initialData, options) {
   let swarmData = ${jsonStr};
   let activeTab = "board";
   let filterQuery = "";
-  let scrubberIndex = (swarmData.messages || []).length || 8;
+  let scrubberIndex = (swarmData.messages || []).length || 1;
   let scrubberInterval = null;
   const liveEndpoint = "${liveUrl}";
 
@@ -608,6 +603,24 @@ export function generateSwarmBoardHtml(initialData, options) {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
+  }
+
+  // Dynamic vibrant palette hashing for any agent name
+  function getMemberColor(name) {
+    const palette = [
+      { bg: "bg-[#f59e0b]/20", text: "text-[#fbbf24]", border: "border-[#f59e0b]/40", stroke: "#f59e0b" },
+      { bg: "bg-[#a855f7]/20", text: "text-[#c084fc]", border: "border-[#a855f7]/40", stroke: "#a855f7" },
+      { bg: "bg-[#10b981]/20", text: "text-[#34d399]", border: "border-[#10b981]/40", stroke: "#10b981" },
+      { bg: "bg-[#3b82f6]/20", text: "text-[#60a5fa]", border: "border-[#3b82f6]/40", stroke: "#3b82f6" },
+      { bg: "bg-[#ec4899]/20", text: "text-[#f472b6]", border: "border-[#ec4899]/40", stroke: "#ec4899" },
+      { bg: "bg-[#06b6d4]/20", text: "text-[#22d3ee]", border: "border-[#06b6d4]/40", stroke: "#06b6d4" },
+      { bg: "bg-[#f97316]/20", text: "text-[#fb923c]", border: "border-[#f97316]/40", stroke: "#f97316" },
+      { bg: "bg-[#84cc16]/20", text: "text-[#a3e635]", border: "border-[#84cc16]/40", stroke: "#84cc16" }
+    ];
+    if (!name || name === "coordinator") return palette[0];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) & 0xffffffff;
+    return palette[(Math.abs(hash) % (palette.length - 1)) + 1];
   }
 
   function showToast(message, type = "info") {
@@ -634,7 +647,7 @@ export function generateSwarmBoardHtml(initialData, options) {
       event.preventDefault();
       event.stopPropagation();
     }
-    const clean = text.replace(/^[•\s]+/, "").trim();
+    const clean = text.replace(/^[•\\s]+/, "").trim();
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(clean).then(() => {
         showToast(\`Copied \${label}: \${clean}\`, "success");
@@ -699,30 +712,31 @@ export function generateSwarmBoardHtml(initialData, options) {
       return \`<span class="inline-flex items-center gap-1">\${chipHtml}</span>\`;
     });
 
-    // 3. Highlight @mentions: @coordinator, @stats, @dedupe, @verifier, @monitor, @all
+    // 3. Highlight @mentions dynamically
     escaped = escaped.replace(/@([a-zA-Z0-9_-]+)/g, '<span class="mention-chip">@$1</span>');
 
-    // 4. Highlight commands: go test ..., go vet ..., gofmt ...
-    escaped = escaped.replace(/(go (?:test|vet|fmt|build|run|mod) [^ \\n<]+)/g, (match, cmd) => {
+    // 4. Highlight commands dynamically
+    escaped = escaped.replace(/(go (?:test|vet|fmt|build|run|mod) [^ \\n<]+|node (?:--test|-c) [^ \\n<]+|npm (?:test|run) [^ \\n<]+)/g, (match, cmd) => {
       return \`<span class="code-chip cmd-chip group" onclick="copySnippet('\${cmd}', 'Command', event)" title="Click to copy command">\${cmd} <span class="opacity-40 group-hover:opacity-100 text-[10px]">📋</span></span>\`;
     });
 
-    // 5. Highlight file paths: e.g. internal/stats/stats.go, /Users/alex/linkshelf, etc.
+    // 5. Highlight file paths
     escaped = escaped.replace(/(\\b(?:\\/[a-zA-Z0-9_.-]+)+|\\b[a-zA-Z0-9_.-]+\\/[a-zA-Z0-9_.-]+|\\b[a-zA-Z0-9_-]+\\.[a-z]{1,4}\\b)/g, (match, p) => {
-      if (p.startsWith('http') || p.includes('&') || p.includes('span') || p.includes('class') || p === 'go') return p;
+      if (p.startsWith('http') || p.includes('&') || p.includes('span') || p.includes('class') || p === 'go' || p === 'js' || p === 'ts') return p;
       return \`<span class="code-chip file-chip group" onclick="copySnippet('\${p}', 'File path', event)" title="Click to copy path">\${p} <span class="opacity-40 group-hover:opacity-100 text-[10px]">📋</span></span>\`;
     });
 
-    // 6. Handle expandable disclosure for "Commands & Test Output:"
-    if (escaped.includes("Commands &amp; Test Output:")) {
-      const parts = escaped.split("Commands &amp; Test Output:");
+    // 6. Handle expandable disclosure for commands or test outputs
+    if (escaped.includes("Commands &amp; Test Output:") || escaped.includes("Verification Report:") || escaped.includes("Deliverables:")) {
+      const trigger = escaped.includes("Commands &amp; Test Output:") ? "Commands &amp; Test Output:" : escaped.includes("Verification Report:") ? "Verification Report:" : "Deliverables:";
+      const parts = escaped.split(trigger);
       const intro = parts[0];
       const details = parts[1] || "";
       return intro + \`
         <details class="mt-2 text-xs" open>
           <summary class="cursor-pointer text-[var(--primary,#8ab4f8)] hover:underline font-medium select-none flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
-            <span>Commands &amp; Test Output</span>
+            <span>\${trigger}</span>
           </summary>
           <div class="mt-1 pl-3 py-1.5 border-l-2 border-[var(--border,#2e3135)] text-[var(--muted-foreground,#9ca3af)] space-y-1 font-mono text-[11px] bg-[rgba(0,0,0,0.2)] rounded-r p-2">
             \${details.trim().split('\\n').map(l => '<div>' + l + '</div>').join('')}
@@ -782,6 +796,21 @@ export function generateSwarmBoardHtml(initialData, options) {
     showToast(\`Addressing @\${name}\`, "info");
   }
 
+  // Dynamically render filter chips from active swarm members
+  function renderFilterChips() {
+    const container = document.getElementById("filter-chips");
+    const members = swarmData.members || [];
+    let html = '<span class="text-[var(--muted-foreground,#8e9196)] py-0.5">Filter:</span>';
+    html += '<button onclick="applyFilter(\\'\\')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[var(--foreground,#fff)] border border-[var(--card-border,#333)] hover:border-[#555]">All</button>';
+    members.forEach(m => {
+      const col = getMemberColor(m.name);
+      html += \`<button onclick="applyFilter('@\${escapeHtml(m.name)}')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] \${col.text} hover:text-white border border-transparent">@\${escapeHtml(m.name)}</button>\`;
+    });
+    html += '<button onclick="applyFilter(\\'Files added:\\')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[#93c5fd] hover:text-white border border-transparent">📁 Files</button>';
+    html += '<button onclick="applyFilter(\\'verification\\')" class="filter-chip px-2 py-0.5 rounded bg-[var(--card,#1e1f20)] text-[#81c995] hover:text-white border border-transparent">✅ Verifications</button>';
+    container.innerHTML = html;
+  }
+
   function renderBoard() {
     const container = document.getElementById("messages-list");
     const emptyState = document.getElementById("board-empty");
@@ -809,18 +838,11 @@ export function generateSwarmBoardHtml(initialData, options) {
       item.id = "msg-" + msg.seq;
       item.className = "msg-item flex items-start gap-3 text-xs leading-relaxed group transition-all duration-300 p-1.5 rounded-lg";
 
-      // Colored avatar circle
+      // Dynamic colored avatar circle
       const avatar = document.createElement("div");
-      const avatarColorMap = {
-        coordinator: "bg-[#f59e0b]/20 text-[#fbbf24] border border-[#f59e0b]/40",
-        stats: "bg-[#a855f7]/20 text-[#c084fc] border border-[#a855f7]/40",
-        dedupe: "bg-[#10b981]/20 text-[#34d399] border border-[#10b981]/40",
-        verifier: "bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/40",
-        monitor: "bg-[#ec4899]/20 text-[#f472b6] border border-[#ec4899]/40",
-      };
-      const colorClass = avatarColorMap[msg.from] || "bg-[rgba(255,255,255,0.08)] text-[var(--muted-foreground,#8e9196)] border border-white/10";
-      avatar.className = \`msg-avatar w-6 h-6 rounded-full \${colorClass} flex items-center justify-center font-medium text-[10px] shrink-0 mt-0.5\`;
-      avatar.textContent = "an";
+      const col = getMemberColor(msg.from);
+      avatar.className = \`msg-avatar w-6 h-6 rounded-full \${col.bg} \${col.text} border \${col.border} flex items-center justify-center font-medium text-[10px] shrink-0 mt-0.5\`;
+      avatar.textContent = (msg.from || "an").slice(0, 2).toLowerCase();
 
       // Right Content
       const content = document.createElement("div");
@@ -922,11 +944,12 @@ export function generateSwarmBoardHtml(initialData, options) {
     });
   }
 
+  // 100% Dynamic DAG Graph Renderer: computes positions & links for ANY swarm
   function renderGraph() {
     const edgesGroup = document.getElementById("dag-edges");
     const nodesGroup = document.getElementById("dag-nodes");
     const slider = document.getElementById("timeline-slider");
-    const totalMsgs = (swarmData.messages || []).length || 8;
+    const totalMsgs = (swarmData.messages || []).length || 1;
 
     slider.max = totalMsgs;
     if (scrubberIndex > totalMsgs) scrubberIndex = totalMsgs;
@@ -935,31 +958,119 @@ export function generateSwarmBoardHtml(initialData, options) {
     edgesGroup.innerHTML = "";
     nodesGroup.innerHTML = "";
 
-    // Active message for current scrubber step
     const currentMsg = (swarmData.messages || [])[scrubberIndex - 1] || (swarmData.messages || [])[0];
     const activeFrom = currentMsg ? currentMsg.from : "coordinator";
     const activeTargets = currentMsg && Array.isArray(currentMsg.to) ? currentMsg.to.map(t => t.replace('@', '')) : [];
 
-    // Layout geometry for the 5 agents
-    const positions = {
-      coordinator: { x: 300, y: 50, label: "@coordinator", role: "Queen Bee 👑", color: "#8ab4f8" },
-      stats: { x: 120, y: 170, label: "@stats", role: "Stats Author", color: "#81c995" },
-      dedupe: { x: 300, y: 170, label: "@dedupe", role: "Dedupe Author", color: "#81c995" },
-      verifier: { x: 210, y: 290, label: "@verifier", role: "Verifier", color: "#fdd663" },
-      monitor: { x: 480, y: 170, label: "@monitor", role: "Watchdog", color: "#f28b82" }
-    };
+    const members = swarmData.members || [];
+    const positions = {};
+    const width = 600;
+    const height = 340;
+
+    const coord = members.find(m => m.name === "coordinator" || m.id === "coordinator");
+    const workers = members.filter(m => m.name !== "coordinator" && m.id !== "coordinator");
+
+    if (coord) {
+      positions[coord.name] = {
+        x: width / 2,
+        y: 45,
+        label: "@" + coord.name,
+        role: coord.role || "Coordinator 👑",
+        color: "#8ab4f8",
+        name: coord.name
+      };
+    }
+
+    if (workers.length > 0) {
+      const numWorkers = workers.length;
+      if (numWorkers <= 4) {
+        const step = (width - 120) / Math.max(1, numWorkers - 1);
+        workers.forEach((w, i) => {
+          const x = numWorkers === 1 ? width / 2 : 60 + i * step;
+          positions[w.name] = {
+            x,
+            y: 200,
+            label: "@" + w.name,
+            role: w.role || "Worker",
+            color: getMemberColor(w.name).stroke,
+            name: w.name
+          };
+        });
+      } else {
+        const mid = Math.ceil(numWorkers / 2);
+        const row1 = workers.slice(0, mid);
+        const row2 = workers.slice(mid);
+
+        const step1 = (width - 120) / Math.max(1, row1.length - 1);
+        row1.forEach((w, i) => {
+          const x = row1.length === 1 ? width / 2 : 60 + i * step1;
+          positions[w.name] = {
+            x,
+            y: 165,
+            label: "@" + w.name,
+            role: w.role || "Worker",
+            color: getMemberColor(w.name).stroke,
+            name: w.name
+          };
+        });
+
+        const step2 = (width - 160) / Math.max(1, row2.length - 1);
+        row2.forEach((w, i) => {
+          const x = row2.length === 1 ? width / 2 : 80 + i * step2;
+          positions[w.name] = {
+            x,
+            y: 285,
+            label: "@" + w.name,
+            role: w.role || "Worker",
+            color: getMemberColor(w.name).stroke,
+            name: w.name
+          };
+        });
+      }
+    }
+
+    // Dynamic links derived from coordinator hierarchy, messages, and dependencies
+    const linksSet = new Set();
+    const links = [];
+
+    if (coord) {
+      workers.forEach(w => {
+        const key = \`\${coord.name}->\${w.name}\`;
+        if (!linksSet.has(key)) {
+          linksSet.add(key);
+          links.push({ from: coord.name, to: w.name });
+        }
+      });
+    }
+
+    (swarmData.messages || []).slice(0, scrubberIndex).forEach(m => {
+      if (m.from && Array.isArray(m.to)) {
+        m.to.forEach(t => {
+          const target = t.replace('@', '');
+          if (positions[m.from] && positions[target]) {
+            const key = \`\${m.from}->\${target}\`;
+            if (!linksSet.has(key)) {
+              linksSet.add(key);
+              links.push({ from: m.from, to: target });
+            }
+          }
+        });
+      }
+    });
+
+    members.forEach(m => {
+      (m.dependsOn || []).forEach(dep => {
+        if (positions[dep] && positions[m.name]) {
+          const key = \`\${dep}->\${m.name}\`;
+          if (!linksSet.has(key)) {
+            linksSet.add(key);
+            links.push({ from: dep, to: m.name });
+          }
+        }
+      });
+    });
 
     // Draw edges
-    const links = [
-      { from: "coordinator", to: "stats" },
-      { from: "coordinator", to: "dedupe" },
-      { from: "coordinator", to: "verifier" },
-      { from: "coordinator", to: "monitor" },
-      { from: "stats", to: "verifier" },
-      { from: "dedupe", to: "verifier" },
-      { from: "verifier", to: "coordinator" }
-    ];
-
     links.forEach(link => {
       const p1 = positions[link.from];
       const p2 = positions[link.to];
@@ -1032,14 +1143,13 @@ export function generateSwarmBoardHtml(initialData, options) {
       nodesGroup.appendChild(g);
     });
 
-    // Update scrubber callout
     updateScrubberCallout(currentMsg);
   }
 
   function updateScrubberCallout(msg) {
     const badge = document.getElementById("scrubber-step-badge");
     const callout = document.getElementById("scrubber-callout");
-    const total = (swarmData.messages || []).length || 8;
+    const total = (swarmData.messages || []).length || 1;
 
     badge.textContent = \`Step \${scrubberIndex} of \${total}\`;
 
@@ -1052,7 +1162,7 @@ export function generateSwarmBoardHtml(initialData, options) {
     callout.innerHTML = \`
       <div class="flex items-center justify-between pb-1 border-b border-[rgba(255,255,255,0.06)] text-[var(--foreground,#f1f5f9)] font-semibold">
         <span>#\${msg.seq} · @\${msg.from} → \${escapeHtml(targets)}</span>
-        <span class="text-[var(--muted-foreground,#8e9196)] font-normal">\${msg.time || "2:24 PM"}</span>
+        <span class="text-[var(--muted-foreground,#8e9196)] font-normal">\${msg.time || "now"}</span>
       </div>
       <div class="pt-1.5 text-xs text-[var(--foreground,#d1d5db)] font-sans">
         \${formatMessageText(msg.text)}
@@ -1061,13 +1171,13 @@ export function generateSwarmBoardHtml(initialData, options) {
   }
 
   function setScrubberStep(step) {
-    const total = (swarmData.messages || []).length || 8;
+    const total = (swarmData.messages || []).length || 1;
     scrubberIndex = Math.max(1, Math.min(step, total));
     renderGraph();
   }
 
   function scrubStep(delta) {
-    const total = (swarmData.messages || []).length || 8;
+    const total = (swarmData.messages || []).length || 1;
     if (delta === -999) scrubberIndex = 1;
     else if (delta === 999) scrubberIndex = total;
     else scrubberIndex = Math.max(1, Math.min(scrubberIndex + delta, total));
@@ -1076,7 +1186,7 @@ export function generateSwarmBoardHtml(initialData, options) {
 
   function toggleScrubberPlay() {
     const btn = document.getElementById("scrubber-play-btn");
-    const total = (swarmData.messages || []).length || 8;
+    const total = (swarmData.messages || []).length || 1;
 
     if (scrubberInterval) {
       clearInterval(scrubberInterval);
@@ -1136,7 +1246,7 @@ export function generateSwarmBoardHtml(initialData, options) {
     const verifications = [];
     messages.forEach(m => {
       const text = m.text || "";
-      if (text.includes("verification passed") || text.includes("go test") || text.includes("review passed")) {
+      if (text.includes("verification passed") || text.includes("Verification Report:") || text.includes("VERIFICATION PASS") || text.includes("review passed")) {
         verifications.push(\`- **#\${m.seq} (@\${m.from})**: \${text.split('\\n')[0]}\`);
       }
     });
@@ -1221,7 +1331,6 @@ Autonomous multi-agent execution completed with full verification and zero regre
     document.getElementById("board-count-pill").textContent = swarmData.messages.length;
     showToast(\`Posted #\${newMsg.seq}\`, "success");
 
-    // Send to server if liveEndpoint is active
     if (liveEndpoint) {
       fetch(liveEndpoint + "/api/post", {
         method: "POST",
@@ -1249,6 +1358,7 @@ Autonomous multi-agent execution completed with full verification and zero regre
         .then(data => {
           swarmData = data;
           document.getElementById("swarm-title").textContent = data.title;
+          renderFilterChips();
           if (activeTab === "board") renderBoard();
           if (activeTab === "members") renderMembers();
           if (activeTab === "graph") renderGraph();
@@ -1290,6 +1400,7 @@ Autonomous multi-agent execution completed with full verification and zero regre
   });
 
   // Initial render
+  renderFilterChips();
   renderBoard();
 </script>
 </body>
@@ -1444,7 +1555,6 @@ export function formatBoardTerminal(data, options) {
         lines.push(`  ${c.gray}(no posts on board matching filter)${c.reset}`);
     }
     else {
-        // Show up to 8 around selected
         const startIdx = Math.max(0, Math.min(selIdx - 3, Math.max(0, messages.length - 8)));
         const endIdx = Math.min(messages.length, startIdx + 8);
         for (let i = startIdx; i < endIdx; i++) {
@@ -1490,7 +1600,6 @@ export async function runInteractiveTerminalBoard(options) {
     let selectedIndex = -1;
     let running = true;
     let filterIndex = 0;
-    const filterPresets = ["", "@coordinator", "@stats", "@dedupe", "@verifier", "ref"];
     const cleanup = () => {
         running = false;
         if (process.stdin.isTTY) {
@@ -1500,13 +1609,14 @@ export async function runInteractiveTerminalBoard(options) {
             }
             catch { }
         }
-        process.stdout.write("\x1b[?25h\n"); // show cursor
+        process.stdout.write("\x1b[?25h\n");
     };
     const render = async () => {
         if (!running)
             return;
         const data = await loadSwarmBoardData(cwd);
-        const activeFilter = filterPresets[filterIndex];
+        const filterPresets = ["", ...data.members.map(m => "@" + m.name), "ref", "verification"];
+        const activeFilter = filterPresets[filterIndex % filterPresets.length];
         let messages = data.messages || [];
         if (activeFilter) {
             messages = messages.filter((m) => (m.text || "").toLowerCase().includes(activeFilter) ||
@@ -1538,13 +1648,11 @@ export async function runInteractiveTerminalBoard(options) {
                     process.exit(0);
                 }
                 else if (key === "\u001b[A" || key === "k") {
-                    // Arrow Up
                     follow = false;
                     selectedIndex = Math.max(0, selectedIndex - 1);
                     await render();
                 }
                 else if (key === "\u001b[B" || key === "j") {
-                    // Arrow Down
                     const data = await loadSwarmBoardData(cwd);
                     selectedIndex = Math.min(data.messages.length - 1, selectedIndex + 1);
                     if (selectedIndex === data.messages.length - 1)
@@ -1552,12 +1660,12 @@ export async function runInteractiveTerminalBoard(options) {
                     await render();
                 }
                 else if (key === "f") {
-                    // Toggle follow
                     follow = !follow;
                     await render();
                 }
                 else if (key === "p") {
-                    // Cycle filter presets
+                    const data = await loadSwarmBoardData(cwd);
+                    const filterPresets = ["", ...data.members.map(m => "@" + m.name), "ref", "verification"];
                     filterIndex = (filterIndex + 1) % filterPresets.length;
                     await render();
                 }
@@ -1568,7 +1676,6 @@ export async function runInteractiveTerminalBoard(options) {
         }
         catch { }
     }
-    // Periodic poll & event listener
     const interval = setInterval(async () => {
         if (!running) {
             clearInterval(interval);
@@ -1597,7 +1704,6 @@ export async function startBoardServer(options) {
     const cwd = options?.cwd || process.cwd();
     const server = http.createServer(async (req, res) => {
         const url = new URL(req.url || "/", `http://localhost:${port}`);
-        // CORS headers
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         res.setHeader("Access-Control-Allow-Headers", "Content-Type");

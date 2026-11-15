@@ -5,13 +5,16 @@
  * & Teamwork Swarm split-view side pane and wide dashboard.
  *
  * Key Optimizations & Usability Features:
+ * - 100% Dynamic & Universal: Auto-adapts to ANY swarm, ANY number of workers, and ANY task
+ * - Dynamic SVG Topology DAG: Computes node coordinates, directed communication links, and active pulses
+ * - Dynamic Filter Chips: Automatically generated from active swarm member roster
+ * - Dynamic Avatar Colors: Deterministic vibrant color hashing across 8 palette families
  * - 3 Primary Tabs: Board <count>, Members <count>, Graph
  * - Live status indicator (● Live) with animated pulse
  * - Clickable Cross-Reference Links (ref #1, ref #5, #6) that smooth-scroll and highlight target posts
  * - Click-to-copy file path & command chips with instant floating toast confirmations
  * - One-click "Export PR Markdown Report" compiling verification passes, diffs, and audit trail
  * - Density Switcher (Comfortable vs Compact) and Width Switcher (Side-Pane vs Wide Canvas)
- * - Smart Filter Facets: All, By Member, 📁 Files Added, ✅ Verifications, ⚡ Directives
  * - Interactive Timeline Scrubber in the Graph view with step-by-step node/edge illumination & playback
  * - Direct member card quick-actions ("💬 Message @agent") prefilling composer
  * - Complete Terminal TUI viewer with keyboard navigation (j/k, p, c, f, tab, enter, esc)
