@@ -331,7 +331,7 @@ export async function postMessage(stateOrDir, swarmDirOrOpts, maybeOpts) {
             seq,
             from,
             agent: from,
-            to: mentions.raw.length > 0 ? mentions.raw : undefined,
+            to: opts.to || (mentions.raw.length > 0 ? mentions.raw : undefined),
             channel,
             text: rawText,
             timestamp: now,

@@ -7,6 +7,7 @@ export type ChannelControlMessage = BoardMessageControl;
 export interface PostMessageOptions {
     text: string;
     from?: string;
+    to?: string[];
     channel?: string;
     control?: ChannelControlMessage;
 }

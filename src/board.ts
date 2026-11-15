@@ -32,6 +32,7 @@ export type ChannelControlMessage = BoardMessageControl;
 export interface PostMessageOptions {
   text: string;
   from?: string;
+  to?: string[];
   channel?: string;
   control?: ChannelControlMessage;
 }
@@ -435,7 +436,7 @@ export async function postMessage(
       seq,
       from,
       agent: from,
-      to: mentions.raw.length > 0 ? mentions.raw : undefined,
+      to: opts.to || (mentions.raw.length > 0 ? mentions.raw : undefined),
       channel,
       text: rawText,
       timestamp: now,
