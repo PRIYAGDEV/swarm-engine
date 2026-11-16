@@ -222,6 +222,36 @@ let _cachedKiloModel: { cwd: string; data?: { leader?: string; worker?: string; 
 let _cachedKiloSubagents: { cwd: string; data?: OpenCodeSubagentInfo[]; expires: number } | undefined;
 
 /**
+ * Formats model identifiers into human-friendly, accurate model display names.
+ */
+export function formatFriendlyModelName(modelId: string, providerId?: string): string {
+  if (!modelId) return "Default Model";
+  const m = modelId.toLowerCase();
+  if (m.includes("mistral-large-4") || m.includes("mistral_large_4")) return "Mistral Large 4";
+  if (m.includes("deepseek-v4.1-flash")) return "DeepSeek V4.1 Flash";
+  if (m.includes("deepseek-v4-flash-0731") || m.includes("deepseek-v4-flash")) return "DeepSeek V4 Flash";
+  if (m.includes("deepseek-v4-pro")) return "DeepSeek V4 Pro";
+  if (m.includes("nemotron-3-ultra")) return "Nemotron 3 Ultra (free)";
+  if (m.includes("nemotron-3.5-super-vl") || m.includes("nemotron-3.5-super")) return "Nemotron 3.5 Super VL (free)";
+  if (m.includes("north-mini-code")) return "North Mini Code (free)";
+  if (m.includes("ernie-5.5-flash")) return "ERNIE 5.5 Flash (free)";
+  if (m.includes("glm-5.3-flash")) return "GLM 5.3 Flash";
+  if (m.includes("minimax-m2.7") || m.includes("minimax-m3")) return "MiniMax M2.7";
+  if (m.includes("gemini-3.5-flash")) return "Gemini 3.5 Flash";
+  if (m.includes("gemini-3.8-flash")) return "Gemini 3.8 Flash";
+  if (m.includes("gemini-4-hydrogen")) return "Gemini 4 Hydrogen";
+  if (m.includes("gemini-4-carbon")) return "Gemini 4 Carbon";
+  if (m.includes("claude-3-7-sonnet") || m.includes("claude-sonnet-4-5")) return "Claude 3.7 Sonnet";
+  if (m.includes("kilo-auto") || m === "auto") return "Auto Free (Kilo)";
+
+  if (modelId.includes("/")) {
+    const parts = modelId.split("/");
+    return parts[parts.length - 1].replace(/:free$/i, "");
+  }
+  return modelId;
+}
+
+/**
  * Detects active model and session metadata from Kilo local database (~/.local/share/kilo/kilo.db).
  */
 export function detectFromKiloDb(cwd: string = process.cwd()): { leader?: string; worker?: string; source?: string; sessionId?: string; timeUpdated?: number } | undefined {
@@ -254,9 +284,11 @@ export function detectFromKiloDb(cwd: string = process.cwd()): { leader?: string
     const row = stmt.get(normCwd, `%${base}%`);
     if (row && row.model) {
       let modelId = "";
+      let provider = "";
       try {
         const parsed = JSON.parse(row.model);
         modelId = parsed.id || parsed.modelID || "";
+        provider = parsed.providerID || "";
         if (parsed.providerID && parsed.providerID !== "kilo") {
           modelId = `${parsed.providerID}/${modelId}`;
         }
@@ -264,11 +296,29 @@ export function detectFromKiloDb(cwd: string = process.cwd()): { leader?: string
         modelId = row.model;
       }
 
-      let cleanModel = modelId;
-      if (modelId.includes("deepseek-v4.1-flash")) cleanModel = "DeepSeek V4.1 Flash";
-      else if (modelId.includes("DeepSeek-V4-Flash-0731")) cleanModel = "DeepSeek V4 Flash";
-      else if (modelId.includes("GLM-5.3-Flash")) cleanModel = "GLM 5.3 Flash";
-      else if (modelId.includes("MiniMax-M2.7")) cleanModel = "MiniMax M2.7";
+      // Check if actual executed model is recorded in latest parts
+      try {
+        const partStmt = db.prepare(`
+          SELECT data FROM part
+          WHERE session_id = ?
+          ORDER BY time_created DESC
+          LIMIT 10
+        `);
+        const parts = partStmt.all(row.id);
+        for (const p of parts) {
+          try {
+            const pd = JSON.parse(p.data);
+            const actual = pd.model?.modelID || pd.modelID || pd.tokens?.model;
+            if (actual && typeof actual === "string" && actual !== "auto" && !actual.includes("kilo-auto")) {
+              modelId = actual;
+              if (pd.model?.providerID) provider = pd.model.providerID;
+              break;
+            }
+          } catch {}
+        }
+      } catch {}
+
+      const cleanModel = formatFriendlyModelName(modelId, provider);
 
       const res = {
         leader: cleanModel,
@@ -335,7 +385,7 @@ export function getKiloSubagents(cwd: string = process.cwd()): OpenCodeSubagentI
       SELECT id, slug, title, agent, model, time_created, time_updated
       FROM session
       WHERE parent_id = ?
-      ORDER BY time_created ASC
+      ORDER BY time_created DESC
     `);
     const children = childStmt.all(root.id);
     if (!children || children.length === 0) {
@@ -344,27 +394,82 @@ export function getKiloSubagents(cwd: string = process.cwd()): OpenCodeSubagentI
     }
 
     const result: OpenCodeSubagentInfo[] = [];
+    const seenActiveRoles = new Set<string>();
+
     for (const ch of children) {
       let chModel = rootModel;
+      let chProvider = "";
       try {
         const cp = JSON.parse(ch.model);
         if (cp.id) chModel = cp.id;
+        if (cp.providerID) chProvider = cp.providerID;
       } catch {}
 
+      // Query latest parts for actual executed model and completion status
+      let status: "working" | "completed" | "failed" = "working";
+      try {
+        const partStmt = db.prepare(`
+          SELECT data FROM part
+          WHERE session_id = ?
+          ORDER BY time_created DESC
+          LIMIT 5
+        `);
+        const parts = partStmt.all(ch.id);
+        for (const pt of parts) {
+          try {
+            const pd = JSON.parse(pt.data);
+            const actual = pd.model?.modelID || pd.modelID || pd.tokens?.model;
+            if (actual && typeof actual === "string" && actual !== "auto" && !actual.includes("kilo-auto")) {
+              chModel = actual;
+              if (pd.model?.providerID) chProvider = pd.model.providerID;
+            }
+            if (pd.type === "step-finish") {
+              if (pd.reason === "stop") {
+                status = "completed";
+              } else if (pd.reason === "abort" || pd.reason === "error") {
+                status = "failed";
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+
+      const cleanModel = formatFriendlyModelName(chModel, chProvider);
       const extractedFiles = ch.title ? (ch.title.match(/[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]{1,6}/g) || []).filter((f: string) => !f.startsWith("http") && !f.includes("..")) : [];
-      const fallbackId = ch.title ? ch.title.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 20) : ch.id.slice(0, 12);
-      const agentId = ch.slug || fallbackId;
+      
+      const roleMatch = ch.title?.match(/@([a-zA-Z0-9_-]+)\s+subagent/i);
+      const subagentRole = ch.agent || (roleMatch ? roleMatch[1] : "author");
+      const cleanBrief = ch.title ? ch.title.replace(/\s*\(@[a-zA-Z0-9_-]+\s+subagent\)/i, "").trim() : "Subagent task";
+
+      // If this role was already claimed by a newer active subagent, mark older cohort as completed/superseded
+      if (status === "working") {
+        if (seenActiveRoles.has(subagentRole)) {
+          status = "completed";
+        } else {
+          seenActiveRoles.add(subagentRole);
+        }
+      }
+
+      const agentId = ch.slug || ch.id.slice(0, 12);
+      const displayName = `${subagentRole} (${ch.slug || ch.id.slice(0, 8)})`;
 
       result.push({
         id: agentId,
-        name: agentId,
-        role: ch.agent || "author",
-        status: "working",
-        model: chModel,
-        brief: ch.title || "Subagent task",
+        name: displayName,
+        role: subagentRole,
+        status,
+        model: cleanModel,
+        brief: cleanBrief,
         targetFiles: extractedFiles,
       });
     }
+
+    // Sort so active running agents are displayed on top of completed ones
+    result.sort((a, b) => {
+      if (a.status === "working" && b.status !== "working") return -1;
+      if (a.status !== "working" && b.status === "working") return 1;
+      return 0;
+    });
 
     _cachedKiloSubagents = { cwd, data: result, expires: now + 1500 };
     return result;

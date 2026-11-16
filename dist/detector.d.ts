@@ -57,6 +57,10 @@ export interface OpenCodeSubagentInfo {
     targetFiles?: string[];
 }
 /**
+ * Formats model identifiers into human-friendly, accurate model display names.
+ */
+export declare function formatFriendlyModelName(modelId: string, providerId?: string): string;
+/**
  * Detects active model and session metadata from Kilo local database (~/.local/share/kilo/kilo.db).
  */
 export declare function detectFromKiloDb(cwd?: string): {
