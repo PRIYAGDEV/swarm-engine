@@ -25,7 +25,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { SwarmState, getSwarmDir, readState, updateState, BoardMessage } from "./state.js";
 import { readBoardMessages, postMessage, boardEventBus } from "./board.js";
-import { detectActiveModelsSync, getOpenCodeSubagents } from "./detector.js";
+import { detectActiveModelsSync, getOpenCodeSubagents, getKiloSubagents, detectFromOpenCode, detectFromKiloDb } from "./detector.js";
 
 function escapeHtml(str: string | undefined): string {
   if (!str) return "";
@@ -1560,14 +1560,22 @@ export async function loadSwarmBoardData(cwd?: string): Promise<SwarmBoardData> 
     brief: coordAgent?.brief || state?.mission || "Swarm coordinator",
   });
 
-  // Check if OpenCode has live subagents in opencode.db
-  let opencodeSubagents: any[] | undefined;
+  // Check if OpenCode or Kilo has live subagents in local runtime databases
+  let cliSubagents: any[] | undefined;
   try {
-    opencodeSubagents = getOpenCodeSubagents(cwd);
+    const ocModel = detectFromOpenCode(cwd);
+    const kiloModel = detectFromKiloDb(cwd);
+    const ocTime = ocModel?.timeUpdated || 0;
+    const kiloTime = kiloModel?.timeUpdated || 0;
+    if (kiloTime > ocTime) {
+      cliSubagents = getKiloSubagents(cwd) || getOpenCodeSubagents(cwd);
+    } else {
+      cliSubagents = getOpenCodeSubagents(cwd) || getKiloSubagents(cwd);
+    }
   } catch {}
 
-  if (opencodeSubagents && opencodeSubagents.length > 0) {
-    for (const sub of opencodeSubagents) {
+  if (cliSubagents && cliSubagents.length > 0) {
+    for (const sub of cliSubagents) {
       members.push({
         id: sub.id,
         name: sub.name,

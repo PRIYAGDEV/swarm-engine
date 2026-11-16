@@ -57,6 +57,20 @@ export interface OpenCodeSubagentInfo {
     targetFiles?: string[];
 }
 /**
+ * Detects active model and session metadata from Kilo local database (~/.local/share/kilo/kilo.db).
+ */
+export declare function detectFromKiloDb(cwd?: string): {
+    leader?: string;
+    worker?: string;
+    source?: string;
+    sessionId?: string;
+    timeUpdated?: number;
+} | undefined;
+/**
+ * Queries active child subagents created inside Kilo for the workspace root session.
+ */
+export declare function getKiloSubagents(cwd?: string): OpenCodeSubagentInfo[] | undefined;
+/**
  * Detects active model and session metadata from OpenCode local database (~/.local/share/opencode/opencode.db).
  */
 export declare function detectFromOpenCode(cwd?: string): {

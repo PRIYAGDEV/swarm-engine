@@ -218,6 +218,162 @@ export interface OpenCodeSubagentInfo {
 // In-memory short-TTL caches to minimize SQLite disk I/O and prevent handle contention
 let _cachedOpenCodeModel: { cwd: string; data?: { leader?: string; worker?: string; source?: string; sessionId?: string; timeUpdated?: number }; expires: number } | undefined;
 let _cachedOpenCodeSubagents: { cwd: string; data?: OpenCodeSubagentInfo[]; expires: number } | undefined;
+let _cachedKiloModel: { cwd: string; data?: { leader?: string; worker?: string; source?: string; sessionId?: string; timeUpdated?: number }; expires: number } | undefined;
+let _cachedKiloSubagents: { cwd: string; data?: OpenCodeSubagentInfo[]; expires: number } | undefined;
+
+/**
+ * Detects active model and session metadata from Kilo local database (~/.local/share/kilo/kilo.db).
+ */
+export function detectFromKiloDb(cwd: string = process.cwd()): { leader?: string; worker?: string; source?: string; sessionId?: string; timeUpdated?: number } | undefined {
+  const now = Date.now();
+  if (_cachedKiloModel && _cachedKiloModel.cwd === cwd && now < _cachedKiloModel.expires) {
+    return _cachedKiloModel.data;
+  }
+
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const dbPath = path.join(home, ".local", "share", "kilo", "kilo.db");
+  if (!fs.existsSync(dbPath)) {
+    _cachedKiloModel = { cwd, data: undefined, expires: now + 5000 };
+    return undefined;
+  }
+
+  let db: any;
+  try {
+    const sqlite = requireModule("node:sqlite");
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    const normCwd = cwd.replace(/\\/g, "/");
+    const base = path.basename(cwd);
+
+    const stmt = db.prepare(`
+      SELECT id, model, directory, title, time_updated
+      FROM session
+      WHERE directory = ? OR directory LIKE ?
+      ORDER BY time_updated DESC
+      LIMIT 1
+    `);
+    const row = stmt.get(normCwd, `%${base}%`);
+    if (row && row.model) {
+      let modelId = "";
+      try {
+        const parsed = JSON.parse(row.model);
+        modelId = parsed.id || parsed.modelID || "";
+        if (parsed.providerID && parsed.providerID !== "kilo") {
+          modelId = `${parsed.providerID}/${modelId}`;
+        }
+      } catch {
+        modelId = row.model;
+      }
+
+      let cleanModel = modelId;
+      if (modelId.includes("deepseek-v4.1-flash")) cleanModel = "DeepSeek V4.1 Flash";
+      else if (modelId.includes("DeepSeek-V4-Flash-0731")) cleanModel = "DeepSeek V4 Flash";
+      else if (modelId.includes("GLM-5.3-Flash")) cleanModel = "GLM 5.3 Flash";
+      else if (modelId.includes("MiniMax-M2.7")) cleanModel = "MiniMax M2.7";
+
+      const res = {
+        leader: cleanModel,
+        worker: cleanModel,
+        source: `Kilo (${row.title || base})`,
+        sessionId: row.id,
+        timeUpdated: row.time_updated,
+      };
+      _cachedKiloModel = { cwd, data: res, expires: now + 1500 };
+      return res;
+    }
+  } catch {} finally {
+    try { if (db) db.close(); } catch {}
+  }
+  _cachedKiloModel = { cwd, data: undefined, expires: now + 2000 };
+  return undefined;
+}
+
+/**
+ * Queries active child subagents created inside Kilo for the workspace root session.
+ */
+export function getKiloSubagents(cwd: string = process.cwd()): OpenCodeSubagentInfo[] | undefined {
+  const now = Date.now();
+  if (_cachedKiloSubagents && _cachedKiloSubagents.cwd === cwd && now < _cachedKiloSubagents.expires) {
+    return _cachedKiloSubagents.data;
+  }
+
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const dbPath = path.join(home, ".local", "share", "kilo", "kilo.db");
+  if (!fs.existsSync(dbPath)) {
+    _cachedKiloSubagents = { cwd, data: undefined, expires: now + 5000 };
+    return undefined;
+  }
+
+  let db: any;
+  try {
+    const sqlite = requireModule("node:sqlite");
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    const normCwd = cwd.replace(/\\/g, "/");
+    const base = path.basename(cwd);
+
+    const rootStmt = db.prepare(`
+      SELECT id, model, directory, title, time_updated
+      FROM session
+      WHERE (directory = ? OR directory LIKE ?) AND parent_id IS NULL
+      ORDER BY time_updated DESC
+      LIMIT 1
+    `);
+    const root = rootStmt.get(normCwd, `%${base}%`);
+    if (!root) {
+      _cachedKiloSubagents = { cwd, data: undefined, expires: now + 2000 };
+      return undefined;
+    }
+
+    let rootModel = "DeepSeek V4.1 Flash";
+    try {
+      const p = JSON.parse(root.model);
+      if (p.id) {
+        rootModel = p.id;
+      }
+    } catch {}
+
+    const childStmt = db.prepare(`
+      SELECT id, slug, title, agent, model, time_created, time_updated
+      FROM session
+      WHERE parent_id = ?
+      ORDER BY time_created ASC
+    `);
+    const children = childStmt.all(root.id);
+    if (!children || children.length === 0) {
+      _cachedKiloSubagents = { cwd, data: undefined, expires: now + 2000 };
+      return undefined;
+    }
+
+    const result: OpenCodeSubagentInfo[] = [];
+    for (const ch of children) {
+      let chModel = rootModel;
+      try {
+        const cp = JSON.parse(ch.model);
+        if (cp.id) chModel = cp.id;
+      } catch {}
+
+      const extractedFiles = ch.title ? (ch.title.match(/[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]{1,6}/g) || []).filter((f: string) => !f.startsWith("http") && !f.includes("..")) : [];
+      const fallbackId = ch.title ? ch.title.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 20) : ch.id.slice(0, 12);
+      const agentId = ch.slug || fallbackId;
+
+      result.push({
+        id: agentId,
+        name: agentId,
+        role: ch.agent || "author",
+        status: "working",
+        model: chModel,
+        brief: ch.title || "Subagent task",
+        targetFiles: extractedFiles,
+      });
+    }
+
+    _cachedKiloSubagents = { cwd, data: result, expires: now + 1500 };
+    return result;
+  } catch {} finally {
+    try { if (db) db.close(); } catch {}
+  }
+  _cachedKiloSubagents = { cwd, data: undefined, expires: now + 2000 };
+  return undefined;
+}
 
 /**
  * Detects active model and session metadata from OpenCode local database (~/.local/share/opencode/opencode.db).
@@ -1061,13 +1217,18 @@ export function detectActiveModelsSync(cwd: string = process.cwd()): DetectedMod
     };
   }
 
-  // 4. OpenCode active project session (~/.local/share/opencode/opencode.db)
+  // 4. OpenCode & Kilo runtime database sessions (opencode.db / kilo.db)
   const fromOpenCode = detectFromOpenCode(cwd);
-  if (fromOpenCode && (fromOpenCode.leader || fromOpenCode.worker)) {
+  const fromKiloDb = detectFromKiloDb(cwd);
+  const activeDbSession = [fromOpenCode, fromKiloDb]
+    .filter((s): s is NonNullable<typeof s> => Boolean(s && (s.leader || s.worker)))
+    .sort((a, b) => (b.timeUpdated || 0) - (a.timeUpdated || 0))[0];
+
+  if (activeDbSession) {
     return {
-      leaderModel: fromOpenCode.leader || fromOpenCode.worker,
-      workerModel: fromOpenCode.worker || fromOpenCode.leader,
-      source: fromOpenCode.source,
+      leaderModel: activeDbSession.leader || activeDbSession.worker,
+      workerModel: activeDbSession.worker || activeDbSession.leader,
+      source: activeDbSession.source,
     };
   }
 
