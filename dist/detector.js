@@ -171,6 +171,92 @@ function detectFromEditorSettings() {
     }
     return undefined;
 }
+/**
+ * Resolves the most actively modified project workspace from local agent runtimes (Kilo / OpenCode).
+ * If the current working directory has no recent activity but another directory has active sessions,
+ * returns that active directory.
+ */
+export function getActiveWorkspaceDir(defaultCwd) {
+    const home = process.env.USERPROFILE || process.env.HOME || "";
+    const root = defaultCwd || process.cwd();
+    // If an explicit directory other than process.cwd() was specified, respect it
+    if (defaultCwd && defaultCwd !== process.cwd()) {
+        return defaultCwd;
+    }
+    let mostRecentDir = root;
+    let mostRecentTime = 0;
+    // 1. Check if root has a .swarm/state.json
+    const defaultStatePath = path.join(root, ".swarm", "state.json");
+    if (fs.existsSync(defaultStatePath)) {
+        try {
+            const stats = fs.statSync(defaultStatePath);
+            mostRecentTime = stats.mtimeMs;
+        }
+        catch { }
+    }
+    // 2. Check Kilo runtime database for active sessions
+    const kiloDbPath = path.join(home, ".local", "share", "kilo", "kilo.db");
+    if (fs.existsSync(kiloDbPath)) {
+        let db;
+        try {
+            const sqlite = requireModule("node:sqlite");
+            db = new sqlite.DatabaseSync(kiloDbPath, { readOnly: true });
+            const row = db.prepare(`
+        SELECT directory, time_updated
+        FROM session
+        WHERE directory IS NOT NULL
+        ORDER BY time_updated DESC
+        LIMIT 1
+      `).get();
+            if (row && row.directory && fs.existsSync(row.directory)) {
+                // If Kilo session was updated more recently than defaultCwd state
+                if (row.time_updated > mostRecentTime) {
+                    mostRecentTime = row.time_updated;
+                    mostRecentDir = row.directory;
+                }
+            }
+        }
+        catch { }
+        finally {
+            try {
+                if (db)
+                    db.close();
+            }
+            catch { }
+        }
+    }
+    // 3. Check OpenCode runtime database for active sessions
+    const opencodeDbPath = path.join(home, ".local", "share", "opencode", "opencode.db");
+    if (fs.existsSync(opencodeDbPath)) {
+        let db;
+        try {
+            const sqlite = requireModule("node:sqlite");
+            db = new sqlite.DatabaseSync(opencodeDbPath, { readOnly: true });
+            const row = db.prepare(`
+        SELECT directory, time_updated
+        FROM session_v2
+        WHERE directory IS NOT NULL
+        ORDER BY time_updated DESC
+        LIMIT 1
+      `).get();
+            if (row && row.directory && fs.existsSync(row.directory)) {
+                if (row.time_updated > mostRecentTime) {
+                    mostRecentTime = row.time_updated;
+                    mostRecentDir = row.directory;
+                }
+            }
+        }
+        catch { }
+        finally {
+            try {
+                if (db)
+                    db.close();
+            }
+            catch { }
+        }
+    }
+    return mostRecentDir;
+}
 // In-memory short-TTL caches to minimize SQLite disk I/O and prevent handle contention
 let _cachedOpenCodeModel;
 let _cachedOpenCodeSubagents;

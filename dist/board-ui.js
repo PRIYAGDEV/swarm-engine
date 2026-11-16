@@ -22,7 +22,7 @@
 import http from "node:http";
 import { getSwarmDir, readState, updateState } from "./state.js";
 import { readBoardMessages, postMessage, boardEventBus } from "./board.js";
-import { detectActiveModelsSync, getOpenCodeSubagents, getKiloSubagents, detectFromOpenCode, detectFromKiloDb } from "./detector.js";
+import { detectActiveModelsSync, getOpenCodeSubagents, getKiloSubagents, detectFromOpenCode, detectFromKiloDb, getActiveWorkspaceDir } from "./detector.js";
 function escapeHtml(str) {
     if (!str)
         return "";
@@ -1482,11 +1482,12 @@ export async function loadSwarmBoardData(cwd) {
     if (!state && messages.length === 0) {
         return getSampleSwarmBoardData();
     }
+    const effectiveCwd = cwd || process.cwd();
     const members = [];
     // Dynamically resolve active model fallback
     let detectedLeader;
     try {
-        const detected = detectActiveModelsSync(cwd);
+        const detected = detectActiveModelsSync(effectiveCwd);
         detectedLeader = detected.leaderModel;
     }
     catch { }
@@ -1519,15 +1520,15 @@ export async function loadSwarmBoardData(cwd) {
     // Check if OpenCode or Kilo has live subagents in local runtime databases
     let cliSubagents;
     try {
-        const ocModel = detectFromOpenCode(cwd);
-        const kiloModel = detectFromKiloDb(cwd);
+        const ocModel = detectFromOpenCode(effectiveCwd);
+        const kiloModel = detectFromKiloDb(effectiveCwd);
         const ocTime = ocModel?.timeUpdated || 0;
         const kiloTime = kiloModel?.timeUpdated || 0;
         if (kiloTime > ocTime) {
-            cliSubagents = getKiloSubagents(cwd) || getOpenCodeSubagents(cwd);
+            cliSubagents = getKiloSubagents(effectiveCwd) || getOpenCodeSubagents(effectiveCwd);
         }
         else {
-            cliSubagents = getOpenCodeSubagents(cwd) || getKiloSubagents(cwd);
+            cliSubagents = getOpenCodeSubagents(effectiveCwd) || getKiloSubagents(effectiveCwd);
         }
     }
     catch { }
@@ -1590,7 +1591,7 @@ export async function loadSwarmBoardData(cwd) {
     return {
         title,
         isLive: true,
-        workspacePath: cwd || process.cwd(),
+        workspacePath: effectiveCwd,
         messages: messages.length > 0 ? messages : getSampleSwarmBoardData().messages,
         members: members.length > 1 ? members : getSampleSwarmBoardData().members,
         headSeq: state?.headSeq || messages.length || 4,
@@ -1833,7 +1834,8 @@ export async function startBoardServer(options) {
             res.end();
             return;
         }
-        const targetCwd = url.searchParams.get("cwd") || cwd;
+        const explicitCwd = url.searchParams.get("cwd");
+        const targetCwd = explicitCwd || getActiveWorkspaceDir(cwd);
         if (url.pathname === "/") {
             try {
                 const data = await loadSwarmBoardData(targetCwd);

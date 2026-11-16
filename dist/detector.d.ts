@@ -57,6 +57,12 @@ export interface OpenCodeSubagentInfo {
     targetFiles?: string[];
 }
 /**
+ * Resolves the most actively modified project workspace from local agent runtimes (Kilo / OpenCode).
+ * If the current working directory has no recent activity but another directory has active sessions,
+ * returns that active directory.
+ */
+export declare function getActiveWorkspaceDir(defaultCwd?: string): string;
+/**
  * Formats model identifiers into human-friendly, accurate model display names.
  */
 export declare function formatFriendlyModelName(modelId: string, providerId?: string): string;
