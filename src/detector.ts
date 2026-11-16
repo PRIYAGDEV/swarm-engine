@@ -320,7 +320,9 @@ export function formatFriendlyModelName(modelId: string, providerId?: string): s
   if (m.includes("nemotron-3.5-super-vl") || m.includes("nemotron-3.5-super")) return "Nemotron 3.5 Super VL (free)";
   if (m.includes("north-mini-code")) return "North Mini Code (free)";
   if (m.includes("ernie-5.5-flash")) return "ERNIE 5.5 Flash (free)";
-  if (m.includes("glm-5.3-flash")) return "GLM 5.3 Flash";
+  if (m.includes("kimi-k3.1") || m.includes("kimi-k3")) return "Kimi K3.1 Pro";
+  if (m.includes("kimi-k2")) return "Kimi K2.7 Code";
+  if (m.includes("glm-5.3-flash") || m.includes("glm-5.3")) return "GLM 5.3 Flash";
   if (m.includes("minimax-m2.7") || m.includes("minimax-m3")) return "MiniMax M2.7";
   if (m.includes("gemini-3.5-flash")) return "Gemini 3.5 Flash";
   if (m.includes("gemini-3.8-flash")) return "Gemini 3.8 Flash";
@@ -1372,6 +1374,8 @@ export function getAvailableModels(activeModel?: string): string[] {
     "o3-mini",
     "deepseek-coder-v2",
     "qwen-2.5-coder",
+    "kimi-k3.1-pro",
+    "glm-5.3-flash",
   ];
   const list: string[] = [];
   if (activeModel && activeModel !== "default" && !defaults.includes(activeModel) && !tiers.includes(activeModel)) {

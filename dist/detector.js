@@ -285,7 +285,11 @@ export function formatFriendlyModelName(modelId, providerId) {
         return "North Mini Code (free)";
     if (m.includes("ernie-5.5-flash"))
         return "ERNIE 5.5 Flash (free)";
-    if (m.includes("glm-5.3-flash"))
+    if (m.includes("kimi-k3.1") || m.includes("kimi-k3"))
+        return "Kimi K3.1 Pro";
+    if (m.includes("kimi-k2"))
+        return "Kimi K2.7 Code";
+    if (m.includes("glm-5.3-flash") || m.includes("glm-5.3"))
         return "GLM 5.3 Flash";
     if (m.includes("minimax-m2.7") || m.includes("minimax-m3"))
         return "MiniMax M2.7";
@@ -1288,6 +1292,8 @@ export function getAvailableModels(activeModel) {
         "o3-mini",
         "deepseek-coder-v2",
         "qwen-2.5-coder",
+        "kimi-k3.1-pro",
+        "glm-5.3-flash",
     ];
     const list = [];
     if (activeModel && activeModel !== "default" && !defaults.includes(activeModel) && !tiers.includes(activeModel)) {
