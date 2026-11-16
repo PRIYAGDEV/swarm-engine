@@ -1920,9 +1920,11 @@ export async function startBoardServer(options?: {
       return;
     }
 
+    const targetCwd = url.searchParams.get("cwd") || cwd;
+
     if (url.pathname === "/") {
       try {
-        const data = await loadSwarmBoardData(cwd);
+        const data = await loadSwarmBoardData(targetCwd);
         const html = generateSwarmBoardHtml(data, { liveUrl: `http://localhost:${port}` });
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(html);
@@ -1935,7 +1937,7 @@ export async function startBoardServer(options?: {
 
     if (url.pathname === "/api/data") {
       try {
-        const data = await loadSwarmBoardData(cwd);
+        const data = await loadSwarmBoardData(targetCwd);
         res.writeHead(200, {
           "Content-Type": "application/json",
           "Cache-Control": "no-cache, no-store, must-revalidate"
