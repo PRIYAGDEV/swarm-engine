@@ -33,6 +33,9 @@ export interface SwarmBoardMember {
     dependsOn?: string[];
     tokens?: number;
     tokPerSec?: number;
+    peakTokPerSec?: number;
+    avgTokPerSec?: number;
+    reasoningTokens?: number;
     poeticVerb?: string;
 }
 export interface SwarmBoardData {
@@ -89,3 +92,9 @@ export declare function startBoardServer(options?: {
     url: string;
     port: number;
 }>;
+/**
+ * Formats live token generation speed and throughput metrics into an aligned terminal table.
+ */
+export declare function formatSpeedTable(data: SwarmBoardData, options?: {
+    useColor?: boolean;
+}): string;

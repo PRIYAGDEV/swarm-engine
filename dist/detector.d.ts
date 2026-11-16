@@ -55,6 +55,11 @@ export interface OpenCodeSubagentInfo {
     model: string;
     brief: string;
     targetFiles?: string[];
+    tokPerSec?: number;
+    peakTokPerSec?: number;
+    avgTokPerSec?: number;
+    tokens?: number;
+    reasoningTokens?: number;
 }
 /**
  * Resolves the most actively modified project workspace from local agent runtimes (Kilo / OpenCode).
@@ -75,6 +80,11 @@ export declare function detectFromKiloDb(cwd?: string): {
     source?: string;
     sessionId?: string;
     timeUpdated?: number;
+    tokPerSec?: number;
+    peakTokPerSec?: number;
+    avgTokPerSec?: number;
+    tokens?: number;
+    reasoningTokens?: number;
 } | undefined;
 /**
  * Queries active child subagents created inside Kilo for the workspace root session.

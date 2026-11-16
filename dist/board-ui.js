@@ -185,6 +185,24 @@ export function generateSwarmBoardHtml(initialData, options) {
     const jsonStr = JSON.stringify(initialData).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
     const liveUrl = options?.liveUrl || "";
     const autoRefresh = options?.autoRefresh ?? Boolean(liveUrl);
+    const initialMembers = initialData.members || [];
+    let initialTotalTokens = 0;
+    let initialTotalSpeed = 0;
+    for (const m of initialMembers) {
+        if (m.tokens)
+            initialTotalTokens += m.tokens;
+        if (m.tokPerSec && m.status === "working")
+            initialTotalSpeed += m.tokPerSec;
+    }
+    if (initialTotalSpeed === 0) {
+        const speeds = initialMembers.filter((m) => m.tokPerSec && m.tokPerSec > 0).map((m) => m.tokPerSec);
+        if (speeds.length > 0)
+            initialTotalSpeed = Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length);
+    }
+    else {
+        initialTotalSpeed = Math.round(initialTotalSpeed * 10) / 10;
+    }
+    const initialTokensDisplay = initialTotalTokens > 1000 ? Math.round(initialTotalTokens / 1000) + "k" : initialTotalTokens;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -399,6 +417,14 @@ export function generateSwarmBoardHtml(initialData, options) {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 4v16" />
           </svg>
         </button>
+
+        <!-- Live Token Generation Telemetry HUD -->
+        <div id="telemetry-hud" class="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[11px] font-mono text-emerald-400 font-medium shadow-[0_0_12px_rgba(16,185,129,0.15)]" title="Swarm Engine Live Token Telemetry">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="hud-speed-val">⚡ ${initialTotalSpeed} tok/s</span>
+          <span class="text-emerald-500/40">|</span>
+          <span id="hud-tokens-val" class="text-emerald-300/80 text-[10px]">${initialTokensDisplay} tok</span>
+        </div>
 
         <!-- Live status indicator -->
         <span id="live-badge" class="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--success,#81c995)] bg-[rgba(129,201,149,0.12)] px-2 py-0.5 rounded-full">
@@ -945,6 +971,10 @@ export function generateSwarmBoardHtml(initialData, options) {
             <span class="text-[11px] text-[var(--muted-foreground,#8e9196)]">(\${escapeHtml(member.role)})</span>
           </div>
           <div class="flex items-center gap-2">
+            \${member.tokPerSec ? \`
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 \${member.status === 'working' ? 'animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.25)]' : ''}" title="Generation speed: \${member.tokPerSec} tok/s">
+              ⚡ \${member.tokPerSec} tok/s
+            </span>\` : ''}
             <button onclick="messageMember('\${escapeHtml(member.name)}', event)" class="px-2 py-0.5 rounded text-[10px] font-medium bg-[rgba(138,180,248,0.12)] text-[var(--primary,#8ab4f8)] hover:bg-[rgba(138,180,248,0.22)] border border-[rgba(138,180,248,0.2)] transition">
               💬 Message
             </button>
@@ -959,12 +989,18 @@ export function generateSwarmBoardHtml(initialData, options) {
         \${files ? '<div class="flex items-center gap-1.5 flex-wrap pt-1">' + files + '</div>' : ''}
         <div class="flex items-center justify-between text-[10px] text-[var(--muted-foreground,#8e9196)] pt-1 border-t border-[rgba(255,255,255,0.05)]">
           <span>\${member.poeticVerb || statusText}</span>
-          <span class="font-mono">\${member.tokens ? member.tokens.toLocaleString() + ' tok' : ''} \${member.tokPerSec ? '· ' + member.tokPerSec + ' tok/s' : ''}</span>
+          <span class="font-mono flex items-center gap-2">
+            \${member.tokens ? '<span>' + member.tokens.toLocaleString() + ' tok</span>' : ''}
+            \${member.reasoningTokens ? '<span class="text-amber-400/80">(' + member.reasoningTokens.toLocaleString() + ' reas)</span>' : ''}
+            \${member.avgTokPerSec ? '<span class="text-[var(--muted-foreground,#8e9196)]">avg ' + member.avgTokPerSec + ' t/s</span>' : ''}
+            \${member.peakTokPerSec ? '<span class="text-emerald-400/80">peak ' + member.peakTokPerSec + ' t/s</span>' : ''}
+          </span>
         </div>
       \`;
 
       container.appendChild(card);
     });
+    updateTelemetryHud();
   }
 
   // 100% Dynamic DAG Graph Renderer: computes positions & links for ANY swarm
@@ -1363,6 +1399,43 @@ Autonomous multi-agent execution completed with full verification and zero regre
     }
   }
 
+  function updateTelemetryHud() {
+    const hudEl = document.getElementById("telemetry-hud");
+    const speedValEl = document.getElementById("hud-speed-val");
+    const tokensValEl = document.getElementById("hud-tokens-val");
+    if (!hudEl || !speedValEl || !tokensValEl) return;
+
+    const members = swarmData.members || [];
+    let activeSpeed = 0;
+    let totalTokens = 0;
+    let activeCount = 0;
+
+    for (const m of members) {
+      if (m.tokPerSec && m.tokPerSec > 0) {
+        if (m.status === "working") {
+          activeSpeed += m.tokPerSec;
+          activeCount++;
+        }
+      }
+      if (m.tokens) {
+        totalTokens += m.tokens;
+      }
+    }
+
+    if (activeSpeed === 0) {
+      const speeds = members.filter(m => m.tokPerSec && m.tokPerSec > 0).map(m => m.tokPerSec);
+      if (speeds.length > 0) {
+        activeSpeed = Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length);
+      }
+    } else {
+      activeSpeed = Math.round(activeSpeed * 10) / 10;
+    }
+
+    speedValEl.textContent = "⚡ " + activeSpeed + " tok/s";
+    tokensValEl.textContent = (totalTokens > 1000 ? Math.round(totalTokens / 1000) + "k" : totalTokens) + " tok";
+    hudEl.title = \`Swarm Generation Speed: \${activeSpeed} tok/s across \${activeCount} active workers | \${totalTokens.toLocaleString()} total tokens\`;
+  }
+
   // Event Listeners
   document.getElementById("search-input").addEventListener("input", (e) => {
     filterQuery = e.target.value;
@@ -1384,6 +1457,7 @@ Autonomous multi-agent execution completed with full verification and zero regre
           if (titleEl) titleEl.textContent = data.title || "Swarm Engine Board";
           document.title = (data.title || "Swarm Engine Board") + " — Swarm Board";
           renderFilterChips();
+          updateTelemetryHud();
           if (activeTab === "board") renderBoard();
           if (activeTab === "members") renderMembers();
           if (activeTab === "graph") renderGraph();
@@ -1392,11 +1466,12 @@ Autonomous multi-agent execution completed with full verification and zero regre
         .catch(err => console.error("Refresh error:", err));
     } else {
       renderBoard();
+      updateTelemetryHud();
       showToast("Board refreshed", "info");
     }
   });
 
-  // Seamless 2-second background sync keeps board, members, and models 100% updated in real-time
+  // Seamless 2-second background sync keeps board, members, models, and token speeds 100% updated in real-time
   if (liveEndpoint) {
     let lastDataHash = "";
     setInterval(() => {
@@ -1409,7 +1484,7 @@ Autonomous multi-agent execution completed with full verification and zero regre
             t: data.title,
             mLen: (data.messages || []).length,
             seq: data.headSeq,
-            mems: data.members.map(m => m.id + ":" + m.status + ":" + m.model + ":" + (m.poeticVerb || ""))
+            mems: data.members.map(m => m.id + ":" + m.status + ":" + m.model + ":" + (m.tokPerSec || 0) + ":" + (m.tokens || 0) + ":" + (m.poeticVerb || ""))
           });
           if (hash !== lastDataHash) {
             lastDataHash = hash;
@@ -1418,6 +1493,7 @@ Autonomous multi-agent execution completed with full verification and zero regre
             if (titleEl) titleEl.textContent = data.title || "Swarm Engine Board";
             document.title = (data.title || "Swarm Engine Board") + " — Swarm Board";
             renderFilterChips();
+            updateTelemetryHud();
             if (activeTab === "board") renderBoard();
             if (activeTab === "members") renderMembers();
             if (activeTab === "graph") renderGraph();
@@ -1508,6 +1584,27 @@ export async function loadSwarmBoardData(cwd) {
     }
     // Check if coordinator already exists in state.agents
     const coordAgent = state?.agents ? state.agents["coordinator"] : undefined;
+    let coordTokPerSec = coordAgent?.tokPerSec;
+    let coordPeakTokPerSec;
+    let coordAvgTokPerSec;
+    let coordTokens = coordAgent?.tokens;
+    let coordReasoningTokens;
+    try {
+        const kiloModel = detectFromKiloDb(effectiveCwd);
+        if (kiloModel) {
+            if (kiloModel.tokPerSec !== undefined)
+                coordTokPerSec = kiloModel.tokPerSec;
+            if (kiloModel.peakTokPerSec !== undefined)
+                coordPeakTokPerSec = kiloModel.peakTokPerSec;
+            if (kiloModel.avgTokPerSec !== undefined)
+                coordAvgTokPerSec = kiloModel.avgTokPerSec;
+            if (kiloModel.tokens !== undefined)
+                coordTokens = kiloModel.tokens;
+            if (kiloModel.reasoningTokens !== undefined)
+                coordReasoningTokens = kiloModel.reasoningTokens;
+        }
+    }
+    catch { }
     // Always include a single coordinator (preventing duplicates)
     members.push({
         id: "coordinator",
@@ -1516,6 +1613,11 @@ export async function loadSwarmBoardData(cwd) {
         status: coordAgent?.status === "waiting" ? "waiting" : "working",
         model: coordAgent?.model && !coordAgent.model.includes("mistral") ? coordAgent.model : activeLeader,
         brief: coordAgent?.brief || state?.mission || "Swarm coordinator",
+        tokPerSec: coordTokPerSec,
+        peakTokPerSec: coordPeakTokPerSec,
+        avgTokPerSec: coordAvgTokPerSec,
+        tokens: coordTokens,
+        reasoningTokens: coordReasoningTokens,
     });
     // Check if OpenCode or Kilo has live subagents in local runtime databases
     let cliSubagents;
@@ -1542,6 +1644,11 @@ export async function loadSwarmBoardData(cwd) {
                 model: sub.model,
                 brief: sub.brief,
                 targetFiles: sub.targetFiles,
+                tokPerSec: sub.tokPerSec,
+                peakTokPerSec: sub.peakTokPerSec,
+                avgTokPerSec: sub.avgTokPerSec,
+                tokens: sub.tokens,
+                reasoningTokens: sub.reasoningTokens,
             });
             if (state && state.agents) {
                 state.agents[sub.id] = {
@@ -1552,6 +1659,8 @@ export async function loadSwarmBoardData(cwd) {
                     model: sub.model,
                     brief: sub.brief,
                     targetFiles: sub.targetFiles,
+                    tokPerSec: sub.tokPerSec,
+                    tokens: sub.tokens,
                 };
             }
         }
@@ -1991,4 +2100,117 @@ export async function startBoardServer(options) {
         catch { }
     }
     return { server, url: finalUrl, port: activePort };
+}
+/**
+ * Formats live token generation speed and throughput metrics into an aligned terminal table.
+ */
+export function formatSpeedTable(data, options) {
+    const useColor = options?.useColor ?? true;
+    const c = useColor
+        ? {
+            reset: "\x1b[0m",
+            bold: "\x1b[1m",
+            dim: "\x1b[2m",
+            cyan: "\x1b[36m",
+            brightCyan: "\x1b[96m",
+            green: "\x1b[32m",
+            brightGreen: "\x1b[92m",
+            yellow: "\x1b[33m",
+            brightYellow: "\x1b[93m",
+            white: "\x1b[37m",
+            brightWhite: "\x1b[97m",
+            gray: "\x1b[90m",
+        }
+        : {
+            reset: "",
+            bold: "",
+            dim: "",
+            cyan: "",
+            brightCyan: "",
+            green: "",
+            brightGreen: "",
+            yellow: "",
+            brightYellow: "",
+            white: "",
+            brightWhite: "",
+            gray: "",
+        };
+    const members = data.members || [];
+    let totalSpeed = 0;
+    let totalTokens = 0;
+    let totalReasoning = 0;
+    let activeWorkers = 0;
+    for (const m of members) {
+        if (m.tokPerSec && m.status === "working") {
+            totalSpeed += m.tokPerSec;
+            activeWorkers++;
+        }
+        if (m.tokens)
+            totalTokens += m.tokens;
+        if (m.reasoningTokens)
+            totalReasoning += m.reasoningTokens;
+    }
+    if (totalSpeed === 0) {
+        const speeds = members.filter((m) => m.tokPerSec && m.tokPerSec > 0).map((m) => m.tokPerSec);
+        if (speeds.length > 0)
+            totalSpeed = Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length);
+    }
+    else {
+        totalSpeed = Math.round(totalSpeed * 10) / 10;
+    }
+    const lines = [];
+    lines.push("================================================================================");
+    lines.push(`  ${c.bold}${c.brightCyan}⚡ SWARM ENGINE — LIVE TOKEN GENERATION TELEMETRY${c.reset}`);
+    lines.push("================================================================================");
+    lines.push(`  ${c.gray}Workspace:${c.reset}  ${c.white}${data.workspacePath || process.cwd()}${c.reset} (${data.title})`);
+    lines.push(`  ${c.gray}Live Swarm Speed:${c.reset} ${c.brightGreen}${totalSpeed} tok/s${c.reset} ${c.gray}·${c.reset} ${c.gray}Active Streaming:${c.reset} ${c.brightCyan}${activeWorkers}${c.reset} ${c.gray}·${c.reset} ${c.gray}Tokens:${c.reset} ${c.white}${totalTokens.toLocaleString()}${c.reset} (${c.yellow}${totalReasoning.toLocaleString()} reasoning${c.reset})`);
+    lines.push("--------------------------------------------------------------------------------");
+    const colAgent = 14;
+    const colRole = 16;
+    const colModel = 22;
+    const colStatus = 10;
+    const colCur = 13;
+    const colAvg = 11;
+    const colPeak = 11;
+    const header = [
+        "Agent".padEnd(colAgent),
+        "Role".padEnd(colRole),
+        "Model".padEnd(colModel),
+        "Status".padEnd(colStatus),
+        "Speed (tok/s)".padEnd(colCur),
+        "Avg (tok/s)".padEnd(colAvg),
+        "Peak (tok/s)".padEnd(colPeak),
+        "Tokens (Total / Thinking)",
+    ].join(" ");
+    lines.push(`${c.bold}${header}${c.reset}`);
+    lines.push("--------------------------------------------------------------------------------");
+    for (const m of members) {
+        const agentName = ("@" + (m.name || m.id)).slice(0, colAgent - 1).padEnd(colAgent);
+        const role = (m.role || "worker").slice(0, colRole - 1).padEnd(colRole);
+        const model = (m.model || "default").slice(0, colModel - 1).padEnd(colModel);
+        let statusFormatted = m.status.slice(0, colStatus - 1).padEnd(colStatus);
+        if (m.status === "working") {
+            statusFormatted = `${c.brightGreen}${statusFormatted}${c.reset}`;
+        }
+        else if (m.status === "completed") {
+            statusFormatted = `${c.gray}${statusFormatted}${c.reset}`;
+        }
+        else {
+            statusFormatted = `${c.yellow}${statusFormatted}${c.reset}`;
+        }
+        const curSpeedStr = m.tokPerSec ? `${m.tokPerSec.toFixed(1)} t/s` : "-";
+        const avgSpeedStr = m.avgTokPerSec ? `${m.avgTokPerSec.toFixed(1)} t/s` : "-";
+        const peakSpeedStr = m.peakTokPerSec ? `${m.peakTokPerSec.toFixed(1)} t/s` : "-";
+        const curFormatted = m.tokPerSec && m.status === "working"
+            ? `${c.brightGreen}${curSpeedStr.padEnd(colCur)}${c.reset}`
+            : curSpeedStr.padEnd(colCur);
+        const avgFormatted = avgSpeedStr.padEnd(colAvg);
+        const peakFormatted = peakSpeedStr.padEnd(colPeak);
+        const tokenPart = m.tokens ? `${m.tokens.toLocaleString()} tok` : "-";
+        const reasPart = m.reasoningTokens ? ` (${c.yellow}${m.reasoningTokens.toLocaleString()} reas${c.reset})` : "";
+        const tokensFormatted = `${tokenPart}${reasPart}`;
+        lines.push(`${agentName} ${role} ${model} ${statusFormatted} ${curFormatted} ${avgFormatted} ${peakFormatted} ${tokensFormatted}`);
+    }
+    lines.push("================================================================================");
+    return lines.join("\n");
 }

@@ -10,6 +10,7 @@ import {
   generateSwarmBoardHtml,
   loadSwarmBoardData,
   formatBoardTerminal,
+  formatSpeedTable,
 } from "../dist/board-ui.js";
 import { createTestWorkspace, createMcpClient } from "./harness.mjs";
 import { initState, updateState, getSwarmDir } from "../dist/state.js";
@@ -218,5 +219,22 @@ test("Swarm Board UI — Google Antigravity & Carbon Parity", async (t) => {
     const filtered = formatBoardTerminal(data, { useColor: false, filter: "@stats" });
     assert.ok(filtered.includes("[filter: @stats]"));
     assert.ok(filtered.includes("internal/stats"));
+  });
+
+  await t.test("T-BRD-09: Live token generation speed telemetry and CLI table formatting", () => {
+    const data = getSampleSwarmBoardData();
+    assert.ok(data.members.some((m) => m.tokPerSec && m.tokPerSec > 0));
+
+    const speedTable = formatSpeedTable(data, { useColor: false });
+    assert.ok(speedTable.includes("SWARM ENGINE — LIVE TOKEN GENERATION TELEMETRY"));
+    assert.ok(speedTable.includes("Speed (tok/s)"));
+    assert.ok(speedTable.includes("Tokens (Total / Thinking)"));
+    assert.ok(speedTable.includes("@stats"));
+
+    const html = generateSwarmBoardHtml(data);
+    assert.ok(html.includes("telemetry-hud"));
+    assert.ok(html.includes("hud-speed-val"));
+    assert.ok(html.includes("hud-tokens-val"));
+    assert.ok(html.includes("tok/s"));
   });
 });

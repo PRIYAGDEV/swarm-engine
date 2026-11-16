@@ -349,13 +349,19 @@ export function detectFromKiloDb(cwd = process.cwd()) {
             catch {
                 modelId = row.model;
             }
-            // Check if actual executed model is recorded in latest parts
+            let latestSpeed;
+            let peakSpeed = 0;
+            let sumSpeed = 0;
+            let speedCount = 0;
+            let totalTokens = 0;
+            let totalReasoning = 0;
+            // Check parts for actual executed model, tokens, and generation speed metrics
             try {
                 const partStmt = db.prepare(`
           SELECT data FROM part
           WHERE session_id = ?
           ORDER BY time_created DESC
-          LIMIT 10
+          LIMIT 50
         `);
                 const parts = partStmt.all(row.id);
                 for (const p of parts) {
@@ -363,16 +369,35 @@ export function detectFromKiloDb(cwd = process.cwd()) {
                         const pd = JSON.parse(p.data);
                         const actual = pd.model?.modelID || pd.modelID || pd.tokens?.model;
                         if (actual && typeof actual === "string" && actual !== "auto" && !actual.includes("kilo-auto")) {
-                            modelId = actual;
-                            if (pd.model?.providerID)
-                                provider = pd.model.providerID;
-                            break;
+                            if (!modelId || modelId === "auto" || modelId.includes("kilo-auto")) {
+                                modelId = actual;
+                                if (pd.model?.providerID)
+                                    provider = pd.model.providerID;
+                            }
+                        }
+                        if (pd.metrics?.generation && typeof pd.metrics.generation === "number") {
+                            const sp = Math.round(pd.metrics.generation * 10) / 10;
+                            if (latestSpeed === undefined)
+                                latestSpeed = sp;
+                            if (sp > peakSpeed)
+                                peakSpeed = sp;
+                            sumSpeed += sp;
+                            speedCount++;
+                        }
+                        if (pd.tokens) {
+                            if (pd.tokens.total && pd.tokens.total > totalTokens) {
+                                totalTokens = pd.tokens.total;
+                            }
+                            if (pd.tokens.reasoning && typeof pd.tokens.reasoning === "number") {
+                                totalReasoning += pd.tokens.reasoning;
+                            }
                         }
                     }
                     catch { }
                 }
             }
             catch { }
+            const avgSpeed = speedCount > 0 ? Math.round((sumSpeed / speedCount) * 10) / 10 : undefined;
             const cleanModel = formatFriendlyModelName(modelId, provider);
             const res = {
                 leader: cleanModel,
@@ -380,6 +405,11 @@ export function detectFromKiloDb(cwd = process.cwd()) {
                 source: `Kilo (${row.title || base})`,
                 sessionId: row.id,
                 timeUpdated: row.time_updated,
+                tokPerSec: latestSpeed,
+                peakTokPerSec: peakSpeed > 0 ? peakSpeed : undefined,
+                avgTokPerSec: avgSpeed,
+                tokens: totalTokens > 0 ? totalTokens : undefined,
+                reasoningTokens: totalReasoning > 0 ? totalReasoning : undefined,
             };
             _cachedKiloModel = { cwd, data: res, expires: now + 1500 };
             return res;
@@ -460,14 +490,20 @@ export function getKiloSubagents(cwd = process.cwd()) {
                     chProvider = cp.providerID;
             }
             catch { }
-            // Query latest parts for actual executed model and completion status
+            // Query parts for actual executed model, completion status, generation speed metrics, and tokens
             let status = "working";
+            let latestSpeed;
+            let peakSpeed = 0;
+            let sumSpeed = 0;
+            let speedCount = 0;
+            let totalTokens = 0;
+            let totalReasoning = 0;
             try {
                 const partStmt = db.prepare(`
           SELECT data FROM part
           WHERE session_id = ?
           ORDER BY time_created DESC
-          LIMIT 5
+          LIMIT 50
         `);
                 const parts = partStmt.all(ch.id);
                 for (const pt of parts) {
@@ -487,11 +523,29 @@ export function getKiloSubagents(cwd = process.cwd()) {
                                 status = "failed";
                             }
                         }
+                        if (pd.metrics?.generation && typeof pd.metrics.generation === "number") {
+                            const sp = Math.round(pd.metrics.generation * 10) / 10;
+                            if (latestSpeed === undefined)
+                                latestSpeed = sp;
+                            if (sp > peakSpeed)
+                                peakSpeed = sp;
+                            sumSpeed += sp;
+                            speedCount++;
+                        }
+                        if (pd.tokens) {
+                            if (pd.tokens.total && pd.tokens.total > totalTokens) {
+                                totalTokens = pd.tokens.total;
+                            }
+                            if (pd.tokens.reasoning && typeof pd.tokens.reasoning === "number") {
+                                totalReasoning += pd.tokens.reasoning;
+                            }
+                        }
                     }
                     catch { }
                 }
             }
             catch { }
+            const avgSpeed = speedCount > 0 ? Math.round((sumSpeed / speedCount) * 10) / 10 : undefined;
             const cleanModel = formatFriendlyModelName(chModel, chProvider);
             const extractedFiles = ch.title ? (ch.title.match(/[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]{1,6}/g) || []).filter((f) => !f.startsWith("http") && !f.includes("..")) : [];
             const roleMatch = ch.title?.match(/@([a-zA-Z0-9_-]+)\s+subagent/i);
@@ -516,6 +570,11 @@ export function getKiloSubagents(cwd = process.cwd()) {
                 model: cleanModel,
                 brief: cleanBrief,
                 targetFiles: extractedFiles,
+                tokPerSec: latestSpeed,
+                peakTokPerSec: peakSpeed > 0 ? peakSpeed : undefined,
+                avgTokPerSec: avgSpeed,
+                tokens: totalTokens > 0 ? totalTokens : undefined,
+                reasoningTokens: totalReasoning > 0 ? totalReasoning : undefined,
             });
         }
         // Sort so active running agents are displayed on top of completed ones
@@ -681,6 +740,46 @@ export function getOpenCodeSubagents(cwd = process.cwd()) {
                 status = "completed";
             else if (ch.idle_outcome === "failed")
                 status = "failed";
+            let latestSpeed;
+            let peakSpeed = 0;
+            let sumSpeed = 0;
+            let speedCount = 0;
+            let totalTokens = 0;
+            let totalReasoning = 0;
+            try {
+                const partStmt = db.prepare(`
+          SELECT data FROM part
+          WHERE session_id = ?
+          ORDER BY time_created DESC
+          LIMIT 50
+        `);
+                const parts = partStmt.all(ch.id);
+                for (const pt of parts) {
+                    try {
+                        const pd = JSON.parse(pt.data);
+                        if (pd.metrics?.generation && typeof pd.metrics.generation === "number") {
+                            const sp = Math.round(pd.metrics.generation * 10) / 10;
+                            if (latestSpeed === undefined)
+                                latestSpeed = sp;
+                            if (sp > peakSpeed)
+                                peakSpeed = sp;
+                            sumSpeed += sp;
+                            speedCount++;
+                        }
+                        if (pd.tokens) {
+                            if (pd.tokens.total && pd.tokens.total > totalTokens) {
+                                totalTokens = pd.tokens.total;
+                            }
+                            if (pd.tokens.reasoning && typeof pd.tokens.reasoning === "number") {
+                                totalReasoning += pd.tokens.reasoning;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            const avgSpeed = speedCount > 0 ? Math.round((sumSpeed / speedCount) * 10) / 10 : undefined;
             const preset = roleMap[ch.title] || {};
             // Dynamic fallback for any arbitrary project subagent
             const extractedFiles = preset.files || (ch.title ? (ch.title.match(/[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]{1,6}/g) || []).filter((f) => !f.startsWith("http") && !f.includes("..")) : []);
@@ -694,6 +793,11 @@ export function getOpenCodeSubagents(cwd = process.cwd()) {
                 model: chModel,
                 brief: ch.title || "Subagent task",
                 targetFiles: extractedFiles,
+                tokPerSec: latestSpeed,
+                peakTokPerSec: peakSpeed > 0 ? peakSpeed : undefined,
+                avgTokPerSec: avgSpeed,
+                tokens: totalTokens > 0 ? totalTokens : undefined,
+                reasoningTokens: totalReasoning > 0 ? totalReasoning : undefined,
             });
         }
         _cachedOpenCodeSubagents = { cwd, data: result, expires: now + 1500 };

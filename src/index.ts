@@ -27,13 +27,14 @@ import { pruneWorktrees, mergeAndComplete, tickScheduler } from "./spawner.js";
 import { startMcpServer } from "./mcp.js";
 import { renderDashboard } from "./tui.js";
 import { runAgentWorker } from "./runner.js";
-import { detectActiveModels, detectActiveModelsSync } from "./detector.js";
+import { detectActiveModels, detectActiveModelsSync, getActiveWorkspaceDir } from "./detector.js";
 import {
   loadSwarmBoardData,
   generateSwarmBoardHtml,
   formatBoardTerminal,
   runInteractiveTerminalBoard,
   startBoardServer,
+  formatSpeedTable,
 } from "./board-ui.js";
 
 /**
@@ -666,6 +667,20 @@ async function handleBoard(args: string[], cwd: string = process.cwd()): Promise
   const portStr = getFlagValue(args, "--port") || getFlagValue(args, "-p");
   const port = portStr ? parseInt(portStr, 10) : 3456;
 
+  if (isServe) {
+    const targetCwd = getActiveWorkspaceDir(cwd);
+    const data = await loadSwarmBoardData(targetCwd);
+    const { url } = await startBoardServer({ port, cwd: targetCwd, open: shouldOpen });
+    console.log(`\n================================================================================`);
+    console.log(`  ● SWARM ENGINE BOARD — LIVE SERVER`);
+    console.log(`  Mission: ${data.title}`);
+    console.log(`  URL:     ${url}`);
+    console.log(`  Tabs:    Board (${data.messages.length}) | Members (${data.members.length}) | Graph`);
+    console.log(`================================================================================\n`);
+    console.log(`Press Ctrl+C to stop the board server.`);
+    return;
+  }
+
   const data = await loadSwarmBoardData(cwd);
 
   if (isPlain) {
@@ -687,19 +702,6 @@ async function handleBoard(args: string[], cwd: string = process.cwd()): Promise
         exec(`${openCmd} "${targetFile}"`).unref();
       } catch {}
     }
-    return;
-  }
-
-  if (isServe) {
-    // Live HTTP Server mode
-    const { url } = await startBoardServer({ port, cwd, open: shouldOpen });
-    console.log(`\n================================================================================`);
-    console.log(`  ● SWARM ENGINE BOARD — LIVE SERVER`);
-    console.log(`  Mission: ${data.title}`);
-    console.log(`  URL:     ${url}`);
-    console.log(`  Tabs:    Board (${data.messages.length}) | Members (${data.members.length}) | Graph`);
-    console.log(`================================================================================\n`);
-    console.log(`Press Ctrl+C to stop the board server.`);
     return;
   }
 
@@ -759,6 +761,64 @@ async function handleModel(args: string[], cwd: string = process.cwd()): Promise
 }
 
 /**
+ * Handles 'swarm-engine speed' or 'telemetry' to live monitor token generation speeds across active agents.
+ */
+async function handleSpeed(args: string[], cwd: string = process.cwd()): Promise<void> {
+  const isWatch = hasFlag(args, "--watch", "-w");
+  const isJson = hasFlag(args, "--json");
+  const intervalStr = getFlagValue(args, "--interval") || getFlagValue(args, "-i");
+  const intervalMs = intervalStr ? Math.max(250, parseInt(intervalStr, 10)) : 1000;
+  const targetCwd = getActiveWorkspaceDir(cwd);
+
+  if (isJson) {
+    const data = await loadSwarmBoardData(targetCwd);
+    const telemetry = {
+      title: data.title,
+      workspace: data.workspacePath || targetCwd,
+      timestamp: Date.now(),
+      members: (data.members || []).map((m) => ({
+        id: m.id,
+        name: m.name,
+        role: m.role,
+        model: m.model,
+        status: m.status,
+        tokPerSec: m.tokPerSec || 0,
+        avgTokPerSec: m.avgTokPerSec || 0,
+        peakTokPerSec: m.peakTokPerSec || 0,
+        tokens: m.tokens || 0,
+        reasoningTokens: m.reasoningTokens || 0,
+      })),
+    };
+    console.log(JSON.stringify(telemetry, null, 2));
+    return;
+  }
+
+  if (!isWatch) {
+    const data = await loadSwarmBoardData(targetCwd);
+    console.log(formatSpeedTable(data, { useColor: true }));
+    return;
+  }
+
+  // Live Watch Mode: clear screen and update at interval
+  const render = async () => {
+    try {
+      const data = await loadSwarmBoardData(targetCwd);
+      const table = formatSpeedTable(data, { useColor: true });
+      process.stdout.write("\x1b[2J\x1b[H" + table + "\n  Press Ctrl+C to exit telemetry watch.\n");
+    } catch {}
+  };
+
+  await render();
+  const timer = setInterval(render, intervalMs);
+
+  process.on("SIGINT", () => {
+    clearInterval(timer);
+    process.stdout.write("\n");
+    process.exit(0);
+  });
+}
+
+/**
  * Prints the CLI help message.
  */
 function printHelp(): void {
@@ -776,11 +836,18 @@ SUBCOMMANDS:
   worker <agentId>              Run an agent worker autonomously inside its worktree
   status [options]              Display swarm status (terminal dashboard, table, or JSON)
   board [options]               Interactive Swarm Board UI (Board, Members, Graph)
+  speed [options]               Live check token generation speed and throughput (tok/s)
+  telemetry [options]           Alias for speed
   watch [options]               Live auto-refreshing swarm status dashboard
   dashboard [options]           Alias for watch (live interactive TUI dashboard)
   tui [options]                 Alias for watch (live interactive TUI dashboard)
   reset [options]               Prune worktrees, clear locks, and reset state
   complete <agentId> [summary]  Complete an agent task and merge its worktree
+
+OPTIONS FOR speed:
+  --watch, -w                   Continuously monitor and refresh token generation speed (1s interval)
+  --interval, -i <ms>           Refresh interval in milliseconds (default: 1000)
+  --json                        Output structured telemetry snapshot as JSON
 
 OPTIONS FOR init:
   --concurrency <num>           Maximum concurrent running agents (0 = unlimited / infinite, default: 0)
@@ -852,6 +919,11 @@ async function main(): Promise<void> {
 
     case "board":
       await handleBoard(subArgs);
+      break;
+
+    case "speed":
+    case "telemetry":
+      await handleSpeed(subArgs);
       break;
 
     case "watch":

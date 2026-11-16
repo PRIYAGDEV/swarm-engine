@@ -213,6 +213,11 @@ export interface OpenCodeSubagentInfo {
   model: string;
   brief: string;
   targetFiles?: string[];
+  tokPerSec?: number;
+  peakTokPerSec?: number;
+  avgTokPerSec?: number;
+  tokens?: number;
+  reasoningTokens?: number;
 }
 
 /**
@@ -334,7 +339,18 @@ export function formatFriendlyModelName(modelId: string, providerId?: string): s
 /**
  * Detects active model and session metadata from Kilo local database (~/.local/share/kilo/kilo.db).
  */
-export function detectFromKiloDb(cwd: string = process.cwd()): { leader?: string; worker?: string; source?: string; sessionId?: string; timeUpdated?: number } | undefined {
+export function detectFromKiloDb(cwd: string = process.cwd()): {
+  leader?: string;
+  worker?: string;
+  source?: string;
+  sessionId?: string;
+  timeUpdated?: number;
+  tokPerSec?: number;
+  peakTokPerSec?: number;
+  avgTokPerSec?: number;
+  tokens?: number;
+  reasoningTokens?: number;
+} | undefined {
   const now = Date.now();
   if (_cachedKiloModel && _cachedKiloModel.cwd === cwd && now < _cachedKiloModel.expires) {
     return _cachedKiloModel.data;
@@ -376,13 +392,20 @@ export function detectFromKiloDb(cwd: string = process.cwd()): { leader?: string
         modelId = row.model;
       }
 
-      // Check if actual executed model is recorded in latest parts
+      let latestSpeed: number | undefined;
+      let peakSpeed = 0;
+      let sumSpeed = 0;
+      let speedCount = 0;
+      let totalTokens = 0;
+      let totalReasoning = 0;
+
+      // Check parts for actual executed model, tokens, and generation speed metrics
       try {
         const partStmt = db.prepare(`
           SELECT data FROM part
           WHERE session_id = ?
           ORDER BY time_created DESC
-          LIMIT 10
+          LIMIT 50
         `);
         const parts = partStmt.all(row.id);
         for (const p of parts) {
@@ -390,14 +413,31 @@ export function detectFromKiloDb(cwd: string = process.cwd()): { leader?: string
             const pd = JSON.parse(p.data);
             const actual = pd.model?.modelID || pd.modelID || pd.tokens?.model;
             if (actual && typeof actual === "string" && actual !== "auto" && !actual.includes("kilo-auto")) {
-              modelId = actual;
-              if (pd.model?.providerID) provider = pd.model.providerID;
-              break;
+              if (!modelId || modelId === "auto" || modelId.includes("kilo-auto")) {
+                modelId = actual;
+                if (pd.model?.providerID) provider = pd.model.providerID;
+              }
+            }
+            if (pd.metrics?.generation && typeof pd.metrics.generation === "number") {
+              const sp = Math.round(pd.metrics.generation * 10) / 10;
+              if (latestSpeed === undefined) latestSpeed = sp;
+              if (sp > peakSpeed) peakSpeed = sp;
+              sumSpeed += sp;
+              speedCount++;
+            }
+            if (pd.tokens) {
+              if (pd.tokens.total && pd.tokens.total > totalTokens) {
+                totalTokens = pd.tokens.total;
+              }
+              if (pd.tokens.reasoning && typeof pd.tokens.reasoning === "number") {
+                totalReasoning += pd.tokens.reasoning;
+              }
             }
           } catch {}
         }
       } catch {}
 
+      const avgSpeed = speedCount > 0 ? Math.round((sumSpeed / speedCount) * 10) / 10 : undefined;
       const cleanModel = formatFriendlyModelName(modelId, provider);
 
       const res = {
@@ -406,6 +446,11 @@ export function detectFromKiloDb(cwd: string = process.cwd()): { leader?: string
         source: `Kilo (${row.title || base})`,
         sessionId: row.id,
         timeUpdated: row.time_updated,
+        tokPerSec: latestSpeed,
+        peakTokPerSec: peakSpeed > 0 ? peakSpeed : undefined,
+        avgTokPerSec: avgSpeed,
+        tokens: totalTokens > 0 ? totalTokens : undefined,
+        reasoningTokens: totalReasoning > 0 ? totalReasoning : undefined,
       };
       _cachedKiloModel = { cwd, data: res, expires: now + 1500 };
       return res;
@@ -485,14 +530,21 @@ export function getKiloSubagents(cwd: string = process.cwd()): OpenCodeSubagentI
         if (cp.providerID) chProvider = cp.providerID;
       } catch {}
 
-      // Query latest parts for actual executed model and completion status
+      // Query parts for actual executed model, completion status, generation speed metrics, and tokens
       let status: "working" | "completed" | "failed" = "working";
+      let latestSpeed: number | undefined;
+      let peakSpeed = 0;
+      let sumSpeed = 0;
+      let speedCount = 0;
+      let totalTokens = 0;
+      let totalReasoning = 0;
+
       try {
         const partStmt = db.prepare(`
           SELECT data FROM part
           WHERE session_id = ?
           ORDER BY time_created DESC
-          LIMIT 5
+          LIMIT 50
         `);
         const parts = partStmt.all(ch.id);
         for (const pt of parts) {
@@ -510,10 +562,26 @@ export function getKiloSubagents(cwd: string = process.cwd()): OpenCodeSubagentI
                 status = "failed";
               }
             }
+            if (pd.metrics?.generation && typeof pd.metrics.generation === "number") {
+              const sp = Math.round(pd.metrics.generation * 10) / 10;
+              if (latestSpeed === undefined) latestSpeed = sp;
+              if (sp > peakSpeed) peakSpeed = sp;
+              sumSpeed += sp;
+              speedCount++;
+            }
+            if (pd.tokens) {
+              if (pd.tokens.total && pd.tokens.total > totalTokens) {
+                totalTokens = pd.tokens.total;
+              }
+              if (pd.tokens.reasoning && typeof pd.tokens.reasoning === "number") {
+                totalReasoning += pd.tokens.reasoning;
+              }
+            }
           } catch {}
         }
       } catch {}
 
+      const avgSpeed = speedCount > 0 ? Math.round((sumSpeed / speedCount) * 10) / 10 : undefined;
       const cleanModel = formatFriendlyModelName(chModel, chProvider);
       const extractedFiles = ch.title ? (ch.title.match(/[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]{1,6}/g) || []).filter((f: string) => !f.startsWith("http") && !f.includes("..")) : [];
       
@@ -541,6 +609,11 @@ export function getKiloSubagents(cwd: string = process.cwd()): OpenCodeSubagentI
         model: cleanModel,
         brief: cleanBrief,
         targetFiles: extractedFiles,
+        tokPerSec: latestSpeed,
+        peakTokPerSec: peakSpeed > 0 ? peakSpeed : undefined,
+        avgTokPerSec: avgSpeed,
+        tokens: totalTokens > 0 ? totalTokens : undefined,
+        reasoningTokens: totalReasoning > 0 ? totalReasoning : undefined,
       });
     }
 
@@ -702,6 +775,44 @@ export function getOpenCodeSubagents(cwd: string = process.cwd()): OpenCodeSubag
       if (ch.idle_outcome === "succeeded") status = "completed";
       else if (ch.idle_outcome === "failed") status = "failed";
 
+      let latestSpeed: number | undefined;
+      let peakSpeed = 0;
+      let sumSpeed = 0;
+      let speedCount = 0;
+      let totalTokens = 0;
+      let totalReasoning = 0;
+
+      try {
+        const partStmt = db.prepare(`
+          SELECT data FROM part
+          WHERE session_id = ?
+          ORDER BY time_created DESC
+          LIMIT 50
+        `);
+        const parts = partStmt.all(ch.id);
+        for (const pt of parts) {
+          try {
+            const pd = JSON.parse(pt.data);
+            if (pd.metrics?.generation && typeof pd.metrics.generation === "number") {
+              const sp = Math.round(pd.metrics.generation * 10) / 10;
+              if (latestSpeed === undefined) latestSpeed = sp;
+              if (sp > peakSpeed) peakSpeed = sp;
+              sumSpeed += sp;
+              speedCount++;
+            }
+            if (pd.tokens) {
+              if (pd.tokens.total && pd.tokens.total > totalTokens) {
+                totalTokens = pd.tokens.total;
+              }
+              if (pd.tokens.reasoning && typeof pd.tokens.reasoning === "number") {
+                totalReasoning += pd.tokens.reasoning;
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+
+      const avgSpeed = speedCount > 0 ? Math.round((sumSpeed / speedCount) * 10) / 10 : undefined;
       const preset = roleMap[ch.title] || {};
       
       // Dynamic fallback for any arbitrary project subagent
@@ -717,6 +828,11 @@ export function getOpenCodeSubagents(cwd: string = process.cwd()): OpenCodeSubag
         model: chModel,
         brief: ch.title || "Subagent task",
         targetFiles: extractedFiles,
+        tokPerSec: latestSpeed,
+        peakTokPerSec: peakSpeed > 0 ? peakSpeed : undefined,
+        avgTokPerSec: avgSpeed,
+        tokens: totalTokens > 0 ? totalTokens : undefined,
+        reasoningTokens: totalReasoning > 0 ? totalReasoning : undefined,
       });
     }
 
